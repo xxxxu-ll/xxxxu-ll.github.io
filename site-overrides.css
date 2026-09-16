@@ -1,0 +1,5 @@
+/* Dense, individually clickable quote stars: each thinker exposes all 100 quotes. */
+.quote-star{width:18px;height:18px}
+.quote-star:after{inset:7.5px}
+.quote-star:hover:after,.quote-star[aria-pressed=true]:after{inset:6.5px}
+
