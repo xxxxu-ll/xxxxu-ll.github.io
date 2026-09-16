@@ -3,3 +3,9 @@
 .quote-star:after{inset:7.5px}
 .quote-star:hover:after,.quote-star[aria-pressed=true]:after{inset:6.5px}
 
+/* Soft depth and motion make the overlapping constellations feel alive. */
+.quote-star{z-index:1;will-change:transform,opacity;animation:starFloat 5.8s ease-in-out infinite;animation-delay:var(--twinkle-delay);filter:drop-shadow(0 0 4px color-mix(in srgb,var(--star-color) 65%,transparent));}
+.quote-star:hover,.quote-star[aria-pressed=true]{z-index:12;filter:drop-shadow(0 0 9px var(--star-color)) brightness(1.25)}
+@keyframes starFloat{0%,100%{transform:translate(calc(-50% + var(--drift-x)),calc(-50% + var(--drift-y))) scale(.88);opacity:.62}50%{transform:translate(calc(-50% - var(--drift-x)),calc(-50% - var(--drift-y))) scale(1.16);opacity:1}}
+@media(prefers-reduced-motion:reduce){.quote-star{animation:none;transform:translate(-50%,-50%);opacity:.85}}
+
