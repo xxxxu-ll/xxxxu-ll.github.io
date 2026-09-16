@@ -1,18 +1,24 @@
-/* Dense, individually clickable quote stars: each thinker exposes all 100 quotes. */
-.quote-star{width:18px;height:18px}
-.quote-star:after{inset:7.5px}
-.quote-star:hover:after,.quote-star[aria-pressed=true]:after{inset:6.5px}
+/* A continuous nebula behind the interactive stars. */
+.universe{isolation:isolate;background:radial-gradient(ellipse at 60% 42%,#111625 0%,#080c13 68%)}
+.universe:before{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 29% 50%,#ac854c16,transparent 47%),radial-gradient(ellipse at 61% 35%,#688dcc1c,transparent 46%),radial-gradient(ellipse at 68% 64%,#519b8616,transparent 43%),radial-gradient(ellipse at 39% 72%,#8560b51b,transparent 47%);filter:blur(18px)}
+.universe:after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,#080c1380 100%)}
+.map{z-index:1}
+.map-tools{z-index:3;background:#101722cc;backdrop-filter:blur(12px);border-color:#d8c39a29;border-radius:24px}
+.map-intro,.map-caption,.map .star-label{display:none}
 
-/* Soft depth and motion make the overlapping constellations feel alive. */
-.quote-star{z-index:1;will-change:transform,opacity;animation:starFloat 5.8s ease-in-out infinite;animation-delay:var(--twinkle-delay);filter:drop-shadow(0 0 4px color-mix(in srgb,var(--star-color) 65%,transparent));}
-.quote-star:hover,.quote-star[aria-pressed=true]{z-index:12;filter:drop-shadow(0 0 9px var(--star-color)) brightness(1.25)}
-@keyframes starFloat{0%,100%{transform:translate(calc(-50% + var(--drift-x)),calc(-50% + var(--drift-y))) scale(.88);opacity:.62}50%{transform:translate(calc(-50% - var(--drift-x)),calc(-50% - var(--drift-y))) scale(1.16);opacity:1}}
-@media(prefers-reduced-motion:reduce){.quote-star{animation:none;transform:translate(-50%,-50%);opacity:.85}}
-
-/* Let the constellation carry the scene; keep only the five identity markers. */
-.map-intro,.map-caption{display:none}
-.star-label{backdrop-filter:blur(2px);text-shadow:0 0 16px var(--star-color),0 2px 12px #000}
-.star-label strong{font-size:1.35rem;letter-spacing:.2em}
-.star-label small{opacity:.72}
-.map .star-label{display:none}
-
+/* Stable hit areas, with motion limited to each luminous core. */
+.quote-star{width:24px;height:24px;z-index:1;animation:none;filter:none;transform:translate(-50%,-50%);will-change:auto}
+.quote-star:after{inset:auto;left:50%;top:50%;width:3px;height:3px;transform:translate(-50%,-50%);background:var(--star-color);box-shadow:0 0 5px var(--star-color),0 0 15px var(--star-color);animation:starBreathe 5.8s ease-in-out infinite;animation-delay:calc(-1 * var(--twinkle-delay))}
+.quote-star:nth-child(3n):after{width:4px;height:4px}
+.quote-star:nth-child(7n):after{width:5px;height:5px}
+.quote-star:hover,.quote-star:focus-visible{z-index:12}
+.quote-star:hover:after,.quote-star:focus-visible:after,.quote-star[aria-pressed=true]:after{inset:auto;left:50%;top:50%;width:6px;height:6px;background:#fff5df;opacity:1;animation:none;transform:translate(-50%,-50%);box-shadow:0 0 8px var(--star-color),0 0 24px var(--star-color)}
+.quote-star[aria-pressed=true]:before{content:"";position:absolute;inset:1px;border:1px solid var(--star-color);border-radius:50%;opacity:.6;box-shadow:0 0 12px var(--star-color)}
+.quote-star:focus-visible{outline:1px solid #fff3d6;outline-offset:3px}
+@keyframes starBreathe{0%,100%{opacity:.55;transform:translate(-50%,-50%) scale(.8)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}}
+.motion-paused .quote-star:after,.view-library .quote-star:after{animation-play-state:paused}
+.reading{border-color:#d8c39a30;border-radius:14px;background:linear-gradient(145deg,#172031e8,#0c111bef);box-shadow:0 18px 65px #0003,inset 0 1px #ffffff06}
+.reading-controls button,.quote-card{border-radius:8px}
+.quote-card{background:linear-gradient(145deg,#121a27,#0d121b)}
+.footer{border-color:#ffffff0c}
+@media(prefers-reduced-motion:reduce){.quote-star:after{animation:none;opacity:.85}}
