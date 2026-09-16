@@ -9,3 +9,9 @@
 @keyframes starFloat{0%,100%{transform:translate(calc(-50% + var(--drift-x)),calc(-50% + var(--drift-y))) scale(.88);opacity:.62}50%{transform:translate(calc(-50% - var(--drift-x)),calc(-50% - var(--drift-y))) scale(1.16);opacity:1}}
 @media(prefers-reduced-motion:reduce){.quote-star{animation:none;transform:translate(-50%,-50%);opacity:.85}}
 
+/* Let the constellation carry the scene; keep only the five identity markers. */
+.map-intro,.map-caption{display:none}
+.star-label{backdrop-filter:blur(2px);text-shadow:0 0 16px var(--star-color),0 2px 12px #000}
+.star-label strong{font-size:1.35rem;letter-spacing:.2em}
+.star-label small{opacity:.72}
+
