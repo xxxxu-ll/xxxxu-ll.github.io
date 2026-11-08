@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#7cb342" />
+<meta name="description" content="像素燕园：多人在线像素校园。在未名湖边散步、认识校园猫、和朋友一起逛北大。" />
+<title>像素燕园 · 多人在线校园</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235a8a3c'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23fdfaf3' font-family='sans-serif'%3E%E7%87%95%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+<div id="app">
+  <canvas id="game" aria-label="校园画面"></canvas>
+
+  <!-- ============ 世界内 HUD ============ -->
+  <div id="hud" class="hidden">
+    <div class="hud-topleft">
+      <button id="minimap" class="minimap" aria-label="打开全图">
+        <canvas id="minimapCanvas" width="320" height="230"></canvas>
+        <span class="minimap-loc"><i class="dot"></i><b id="locName">燕园</b></span>
+      </button>
+      <div class="chiprow">
+        <span class="chip" id="chipOnline" title="真实在线玩家数">在线 <b>0</b></span>
+        <span class="chip" id="chipExplore">探索 <b>0</b>%</span>
+        <span class="chip chip-clock" id="chipClock">08:00</span>
+      </div>
+    </div>
+
+    <div class="hud-topright">
+      <button class="iconbtn" id="btnMap" title="全图 (M)">地图</button>
+      <button class="iconbtn" id="btnJournal" title="燕园观察手册 (J)">手册</button>
+      <button class="iconbtn" id="btnPhoto" title="拍照 (P)">拍照</button>
+      <button class="iconbtn" id="btnHelp" title="帮助">?</button>
+    </div>
+
+    <div id="prompt" class="prompt hidden"><kbd>E</kbd><span id="promptText"></span></div>
+
+    <div id="chatlog" class="chatlog" aria-live="polite"></div>
+
+    <div class="hud-bottom">
+      <div id="joystick" class="joystick hidden" aria-hidden="true">
+        <div class="joystick-base"></div>
+        <div class="joystick-knob"></div>
+      </div>
+      <div class="hud-hint">
+        <span class="desktop-only">WASD / 方向键 移动 · Shift 奔跑 · B 骑车 · E 互动 · T 聊天</span>
+        <span class="mobile-only">左侧摇杆移动</span>
+      </div>
+      <div class="hud-actions">
+        <button class="actbtn" id="btnInteract" title="互动">互动</button>
+        <button class="actbtn" id="btnRun" title="奔跑">跑</button>
+        <button class="actbtn" id="btnBike" title="骑车">车</button>
+        <button class="actbtn" id="btnChat" title="聊天">聊天</button>
+      </div>
+    </div>
+
+    <div id="chatbar" class="chatbar hidden">
+      <input id="chatInput" type="text" maxlength="120" placeholder="说点什么…（回车发送，Esc 取消）" autocomplete="off" />
+      <button id="chatSend" class="sendbtn">发送</button>
+    </div>
+
+    <div id="banner" class="banner hidden"></div>
+  </div>
+
+  <!-- ============ 全图 ============ -->
+  <div id="mapOverlay" class="overlay hidden">
+    <div class="overlay-card map-card">
+      <header>
+        <h2>燕园全图</h2>
+        <div class="map-tools">
+          <input id="mapSearch" type="search" placeholder="搜索地点，如「未名湖」「图书馆」" autocomplete="off" />
+          <button class="ghostbtn" id="mapClose">关闭</button>
+        </div>
+      </header>
+      <div class="map-body">
+        <div class="map-canvas-wrap">
+          <canvas id="fullmap" width="1200" height="860"></canvas>
+          <div id="mapTip" class="map-tip">拖动查看 · 点击地点设为目的地</div>
+        </div>
+        <aside class="map-side">
+          <h3>目的地</h3>
+          <p id="destText" class="muted">未设置</p>
+          <button class="ghostbtn wide" id="destClear">清除目的地</button>
+          <h3>搜索结果</h3>
+          <ul id="searchResults" class="results"></ul>
+          <p class="muted small" id="mapFooter"></p>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 观察手册 ============ -->
+  <div id="journalOverlay" class="overlay hidden">
+    <div class="overlay-card journal-card">
+      <header>
+        <h2>燕园观察手册</h2>
+        <button class="ghostbtn" id="journalClose">关闭</button>
+      </header>
+      <div class="journal-body">
+        <div class="journal-col">
+          <h3>探索</h3>
+          <div class="progress"><div class="progress-bar" id="exploreBar"></div></div>
+          <p class="muted small" id="exploreText"></p>
+          <h3>校园猫</h3>
+          <ul id="catList" class="cat-list"></ul>
+        </div>
+        <div class="journal-col">
+          <h3>成就与称号</h3>
+          <ul id="achList" class="ach-list"></ul>
+          <h3>随身物品</h3>
+          <ul id="itemList" class="item-list"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 帮助 ============ -->
+  <div id="helpOverlay" class="overlay hidden">
+    <div class="overlay-card help-card">
+      <header><h2>怎么玩</h2><button class="ghostbtn" id="helpClose">关闭</button></header>
+      <div class="help-body">
+        <ul>
+          <li><b>移动</b>：电脑用 WASD 或方向键，手机用左下摇杆。</li>
+          <li><b>奔跑 / 骑车</b>：Shift 奔跑，B 切换自行车。</li>
+          <li><b>互动</b>：靠近校园猫、校门、文物时按 E。</li>
+          <li><b>聊天</b>：T 或回车打开输入框，全校园公共频道。</li>
+          <li><b>地图</b>：M 打开全图，搜索地名后点结果设为目的地。</li>
+          <li><b>拍照</b>：P 保存当前画面为 PNG。</li>
+          <li><b>存档</b>：进度保存在服务器，换设备用恢复码登录。</li>
+        </ul>
+        <p class="muted small">非官方学生作品，与北京大学无隶属关系。地图基于 OpenStreetMap 数据（ODbL）与公开影像配准，仅供游玩，不作测绘用途。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 开始 / 创建角色 ============ -->
+  <div id="startScreen" class="screen">
+    <div class="start-inner">
+      <h1 class="logo">像素燕园<span>YANYUAN</span></h1>
+      <p class="tagline">在未名湖边散步，认识一只猫，或者遇见一个朋友。</p>
+      <div id="startStatus" class="start-status">正在连接世界…</div>
+      <div class="start-actions">
+        <button class="primarybtn" id="btnCreate">创建角色</button>
+        <button class="ghostbtn" id="btnRestore">用恢复码登录</button>
+      </div>
+      <button class="ghostbtn hidden" id="btnOffline" style="margin-top:12px">离线漫游（不保存、看不到其他玩家）</button>
+      <p class="start-note">一个多人在线的像素校园 · 非官方学生作品</p>
+    </div>
+  </div>
+
+  <div id="createScreen" class="screen hidden">
+    <div class="create-inner">
+      <h2>创建你的角色</h2>
+      <div class="create-grid">
+        <div class="preview-box">
+          <canvas id="previewCanvas" width="128" height="176"></canvas>
+          <div class="preview-name" id="previewName">未命名</div>
+          <div class="preview-sub" id="previewSub"></div>
+        </div>
+        <div class="form-box">
+          <label class="field">
+            <span>昵称</span>
+            <input id="inName" type="text" maxlength="12" placeholder="2–12 个字" autocomplete="off" />
+          </label>
+          <div class="field-row" id="styleRows"></div>
+          <div class="field-row two">
+            <label class="field"><span>院系（可选）</span><input id="inDept" maxlength="14" placeholder="如 信息科学技术学院" autocomplete="off" /></label>
+            <label class="field"><span>年级（可选）</span><input id="inGrade" maxlength="6" placeholder="如 2023" autocomplete="off" /></label>
+          </div>
+          <label class="field">
+            <span>个性签名（可选）</span>
+            <input id="inBio" maxlength="30" placeholder="一句话介绍自己" autocomplete="off" />
+          </label>
+          <div class="create-actions">
+            <button class="primarybtn" id="btnEnter">进入燕园</button>
+            <button class="ghostbtn" id="btnBackStart">返回</button>
+          </div>
+          <p class="small muted" id="createError"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="restoreScreen" class="screen hidden">
+    <div class="restore-inner">
+      <h2>用恢复码登录</h2>
+      <p class="muted">恢复码在创建角色时显示，形如 <code>XXXX-XXXX-XXXX-XXXX</code>。它相当于密码，请不要发给别人。</p>
+      <input id="inRecovery" type="text" maxlength="26" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" />
+      <div class="create-actions">
+        <button class="primarybtn" id="btnDoRestore">登录</button>
+        <button class="ghostbtn" id="btnBackStart2">返回</button>
+      </div>
+      <p class="small" id="restoreError"></p>
+    </div>
+  </div>
+
+  <!-- ============ 恢复码提示 ============ -->
+  <div id="codeOverlay" class="overlay hidden">
+    <div class="overlay-card code-card">
+      <h2>记下你的恢复码</h2>
+      <p>换电脑、清缓存后，用它找回你的角色和全部进度。服务器只保存它的哈希，我们无法替你找回。</p>
+      <div class="code-box" id="codeBox">----</div>
+      <div class="code-actions">
+        <button class="ghostbtn" id="codeCopy">复制</button>
+        <button class="ghostbtn" id="codeSave">存为文本</button>
+        <button class="primarybtn" id="codeOk">我已保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="flash" class="flash"></div>
+  <div id="toasts" class="toasts"></div>
+
+  <div id="boot" class="boot">
+    <div class="boot-logo">像素燕园</div>
+    <div class="boot-bar"><i id="bootBar"></i></div>
+    <div class="boot-text" id="bootText">正在加载燕园地图…</div>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
