@@ -236,6 +236,17 @@ export class Game {
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     };
+    document.getElementById('helpLogout').onclick = () => {
+      const hasCode = !!localStorage.getItem('yanyuan.token');
+      const msg = hasCode
+        ? '退出后这台设备就不再保存登录状态。请确认你已经抄下恢复码（帮助里可以复制），否则将无法再进入这个角色。\n\n确定退出？'
+        : '确定退出？';
+      if (!confirm(msg)) return;
+      this.store.flush(true).catch(() => {});
+      localStorage.removeItem('yanyuan.token');
+      localStorage.removeItem('yanyuan.name');
+      location.reload();
+    };
     document.getElementById('btnPhoto').onclick = () => this.takePhoto();
     document.getElementById('mapClose').onclick = () => this.closeMap();
     document.getElementById('journalClose').onclick = () => ui.el.journalOverlay.classList.add('hidden');
