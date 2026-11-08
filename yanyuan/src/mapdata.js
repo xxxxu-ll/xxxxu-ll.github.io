@@ -73,14 +73,34 @@ export class World {
     for (const a of raw.aliases || []) {
       this.landmarks.push({ name: a.n, type: a.t, x: a.p[0] * S, y: a.p[1] * S, kind: a.k, aliasOf: a.aliasOf });
     }
-    // 去重（同名同坐标）
+    // 去重：同名同坐标，以及同一位置上近似的多个名字（如「北大西门」与「北京大学西门」）
     const seen = new Set();
-    this.landmarks = this.landmarks.filter(l => {
-      const k = l.name + '|' + Math.round(l.x) + '|' + Math.round(l.y);
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+    const byPlace = new Map();
+    const kept = [];
+    for (const l of this.landmarks) {
+      const key = l.name + '|' + Math.round(l.x) + '|' + Math.round(l.y);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (l.aliasOf) { kept.push(l); continue; }
+      const placeKey = Math.round(l.x / 8) + ',' + Math.round(l.y / 8);
+      const prev = byPlace.get(placeKey);
+      if (prev && samePlaceName(prev.name, l.name) && Math.hypot(prev.x - l.x, prev.y - l.y) < 12) {
+        // 同一位置、同类地标：保留名字更短的那个，另一个并入检索别名
+        if ([...l.name].length < [...prev.name].length) {
+          prev.aliasOf = l.name;
+          const idx = kept.indexOf(prev);
+          if (idx >= 0) kept[idx] = l;
+          byPlace.set(placeKey, l);
+        } else {
+          l.aliasOf = prev.name;
+          kept.push(l);
+        }
+        continue;
+      }
+      byPlace.set(placeKey, l);
+      kept.push(l);
+    }
+    this.landmarks = kept;
     this.exploreTotal = this.landmarks.filter(l => !l.aliasOf).length;
 
     this._buildCollision();
@@ -231,6 +251,31 @@ export class World {
       }
     }
     this.trees = trees;
+    this._buildLamps();
+  }
+
+  /** 路灯：沿道路等距布置，供夜间照明 */
+  _buildLamps() {
+    const lamps = [];
+    for (const r of this.roads) {
+      if (r.kind === 'steps' || r.w < 2.2) continue;
+      const gap = r.w >= 4 ? 38 : 54;
+      let acc = 999;
+      for (let i = 0; i < r.pts.length - 2; i += 2) {
+        const ax = r.pts[i], ay = r.pts[i + 1], bx = r.pts[i + 2], by = r.pts[i + 3];
+        const len = Math.hypot(bx - ax, by - ay);
+        if (len < 0.01) continue;
+        acc += len;
+        if (acc < gap) continue;
+        acc = 0;
+        const nx = -(by - ay) / len, ny = (bx - ax) / len;
+        const off = r.w * 0.5 + 1.4;
+        const x = ax + nx * off, y = ay + ny * off;
+        if (this.blocked(x, y, 0.35)) continue;
+        lamps.push({ x, y });
+      }
+    }
+    this.lamps = lamps;
   }
 
   _tree(x, y, rng) {
@@ -306,6 +351,15 @@ export class World {
 }
 
 function inBBox(x, y, b) { return x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]; }
+
+/** 两个地名是否基本指同一处（如「北大西门」与「北京大学西门」） */
+function samePlaceName(a, b) {
+  if (a === b) return true;
+  const A = new Set([...a]), B = new Set([...b]);
+  let inter = 0;
+  for (const ch of A) if (B.has(ch)) inter++;
+  return inter / Math.min(A.size, B.size) >= 0.8;
+}
 
 function unionBBox(rings) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;

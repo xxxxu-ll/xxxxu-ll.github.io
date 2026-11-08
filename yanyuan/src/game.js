@@ -1,5 +1,5 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawTree, drawWaterAnim, drawTint, drawLabel } from './render.js';
+import { Camera, Ground, drawBuilding, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights } from './render.js';
 import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js';
 import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js';
 import {
@@ -82,6 +82,8 @@ export class Game {
 
   // ---------------- 启动 ----------------
   start() {
+    if (this.started) return;
+    this.started = true;
     this.running = true;
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -102,6 +104,7 @@ export class Game {
 
     ui.el.hud.classList.remove('hidden');
     ui.setLocation('静园草坪');
+    ui.clearChat();
     if (this.offline) {
       ui.pushChatLine({ sys: true, text: '离线漫游：进度不会保存，也看不到其他玩家。连上世界服务后重新进入即可联机。' });
       ui.showBanner('离线漫游 · 不保存进度', { info: true });
@@ -481,6 +484,8 @@ export class Game {
     drawWaterAnim(ctx, this.world, this.cam, now);
 
     const view = this.cam.viewRect(6);
+    const now2 = new Date();
+    const hour = this.hourOverride ?? (now2.getHours() + now2.getMinutes() / 60);
     const items = [];
 
     for (const b of this.world.buildings) {
@@ -506,7 +511,7 @@ export class Game {
     this.drawGroundMarks(ctx);
 
     for (const it of items) {
-      if (it.k === 'b') drawBuilding(ctx, it.o, this.cam, now);
+      if (it.k === 'b') drawBuilding(ctx, it.o, this.cam, hour);
       else if (it.k === 't') drawTree(ctx, it.o, this.cam);
       else if (it.k === 'c') this.drawCatEntity(ctx, it.o);
       else if (it.k === 'r') this.drawRemote(ctx, it.o);
@@ -526,9 +531,8 @@ export class Game {
     this.drawWaypoint(ctx);
 
     // 昼夜
-    const now2 = new Date();
-    const hour = this.hourOverride ?? (now2.getHours() + now2.getMinutes() / 60);
     drawTint(ctx, W, H, hour);
+    drawNightLights(ctx, this.world, this.cam, hour);
 
     // 拍照取景框
     if (this.photoMode) this.drawPhotoFrame(ctx, W, H);
@@ -546,18 +550,35 @@ export class Game {
       ctx.fill();
       if (dist(h.x, h.y, cam.x, cam.y) < 18) drawLabel(ctx, h.name, x, y - 8, 10, 0.6, '#5a4a22');
     }
-    // 校门
+    // 校门：画成一座小牌楼（若校门本身有建筑轮廓，则只标注名字）
     for (const g of this.world.gates) {
       const x = cam.sx(g.x), y = cam.sy(g.y);
-      if (x < -20 || y < -20 || x > cam.w + 20 || y > cam.h + 20) continue;
-      ctx.fillStyle = 'rgba(200,85,61,.9)';
-      ctx.beginPath();
-      ctx.arc(x, y, 3 * cam.zoom, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1.4;
-      ctx.stroke();
-      if (dist(g.x, g.y, cam.x, cam.y) < 40) drawLabel(ctx, g.name, x, y - 9, 10.5, 0.8, '#7a2e20');
+      if (x < -40 || y < -40 || x > cam.w + 40 || y > cam.h + 40) continue;
+      const z = cam.zoom;
+      const hasBuilding = this.world.buildings.some(b =>
+        g.x > b.bbox[0] - 3 && g.x < b.bbox[2] + 3 && g.y > b.bbox[1] - 3 && g.y < b.bbox[3] + 3);
+      if (!hasBuilding) {
+        ctx.save();
+        ctx.fillStyle = '#b8553f';
+        ctx.fillRect(x - 15 * z, y - 16 * z, 4 * z, 16 * z);
+        ctx.fillRect(x + 11 * z, y - 16 * z, 4 * z, 16 * z);
+        ctx.fillStyle = '#8f3a2a';
+        ctx.fillRect(x - 18 * z, y - 20 * z, 36 * z, 5 * z);
+        ctx.fillStyle = '#5c5a52';
+        ctx.beginPath();
+        ctx.moveTo(x - 22 * z, y - 20 * z);
+        ctx.lineTo(x - 12 * z, y - 27 * z);
+        ctx.lineTo(x + 12 * z, y - 27 * z);
+        ctx.lineTo(x + 22 * z, y - 20 * z);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#e8d9a8';
+        ctx.fillRect(x - 6 * z, y - 19 * z, 12 * z, 3.2 * z);
+        ctx.restore();
+      }
+      if (dist(g.x, g.y, cam.x, cam.y) < 45) {
+        drawLabel(ctx, g.name, x, y - (hasBuilding ? 10 : 30) * z, 10.5, 0.85, '#6f2a1c');
+      }
     }
   }
 

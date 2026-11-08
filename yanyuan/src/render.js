@@ -49,10 +49,13 @@ const HERITAGE_ROOF = '#7a4a3a';
 
 function roofColor(b) {
   if (b.heritage) return HERITAGE_ROOF;
-  const base = ROOF_BY_CAT[b.cat] || '#a9a396';
   const pitched = /hip|gable|xieshan|wudian|coiled|barrel|pier/.test(b.roof);
+  const base = ROOF_BY_CAT[b.cat] || '#a9a396';
   if (!pitched) return base;
-  return mixHex(base, b.cat === '生活' ? '#8a4436' : '#6f6a60', 0.4);
+  // 坡屋顶：生活区偏红瓦，教学/园林偏青灰瓦
+  if (b.cat === '生活') return mixHex(base, '#8a4436', 0.45);
+  if (b.cat === '食堂') return mixHex(base, '#9a5a3a', 0.3);
+  return mixHex(base, '#5f6a66', 0.42);
 }
 
 function heightPx(b) {
@@ -130,12 +133,12 @@ export class Ground {
       g.fillRect(x, y, rw, rh);
     }
     // 小花与草簇
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 11; i++) {
       const x = w0 + rng() * this.chunkM, y = h0 + rng() * this.chunkM;
       const r = rng();
-      if (r < 0.12) { g.fillStyle = '#f2e6a8'; g.fillRect(x, y, 0.5, 0.5); }
-      else if (r < 0.2) { g.fillStyle = '#e8c9d8'; g.fillRect(x, y, 0.5, 0.5); }
-      else { g.fillStyle = rgba('#5d9333', 0.5); g.fillRect(x, y, 0.4, 0.8); }
+      if (r < 0.22) { g.fillStyle = 'rgba(242,230,168,.75)'; g.fillRect(x, y, 0.45, 0.45); }
+      else if (r < 0.34) { g.fillStyle = 'rgba(232,201,216,.7)'; g.fillRect(x, y, 0.45, 0.45); }
+      else { g.fillStyle = rgba('#5d9333', 0.45); g.fillRect(x, y, 0.4, 0.8); }
     }
 
     // 绿地
@@ -344,8 +347,7 @@ export function prepareBuilding(b) {
 export function drawBuilding(ctx, b, cam, timeOfDay) {
   prepareBuilding(b);
   const s = cam.scale;
-  const ex = b._extrude * cam.zoom;
-  const ox = cam.w / 2 - cam.x * s;
+  const ex = b._extrude * cam.zoom;  const ox = cam.w / 2 - cam.x * s;
   const oy = cam.h / 2 - cam.y * s;
   const setM = (dx, dy) => {
     ctx.translate(ox + dx, oy + dy);
@@ -440,14 +442,24 @@ export function drawBuilding(ctx, b, cam, timeOfDay) {
     const exM = ex / s;                       // 立面视觉高度（米）
     const rows = Math.min(3, Math.max(1, Math.round(exM / 4.2)));
     const rng = mulberry32((b.id | 0) * 31 + 7);
+    const night = nightStrength(timeOfDay) > 0.15;
     for (let r = 0; r < rows; r++) {
       const y = bb[3] - 1.1 - r * (exM / rows);
       for (let x = bb[0] + 1.4; x < bb[2] - 1.4; x += 2.8) {
-        if (rng() < 0.18) continue;
-        ctx.fillStyle = 'rgba(46,60,68,.62)';
-        ctx.fillRect(x, y - 1.4, 1.3, 1.4);
-        ctx.fillStyle = 'rgba(246,230,184,.16)';
-        ctx.fillRect(x, y - 1.4, 1.3, 0.4);
+        const skip = rng() < 0.18;
+        const lit = rng() < 0.45;
+        if (skip) continue;
+        if (night && lit) {
+          ctx.fillStyle = 'rgba(255,214,140,.92)';
+          ctx.fillRect(x, y - 1.4, 1.3, 1.4);
+          ctx.fillStyle = 'rgba(255,232,170,.22)';
+          ctx.fillRect(x - 0.5, y - 2.0, 2.3, 2.4);
+        } else {
+          ctx.fillStyle = 'rgba(46,60,68,.62)';
+          ctx.fillRect(x, y - 1.4, 1.3, 1.4);
+          ctx.fillStyle = 'rgba(246,230,184,.16)';
+          ctx.fillRect(x, y - 1.4, 1.3, 0.4);
+        }
       }
     }
     ctx.restore();
@@ -596,6 +608,40 @@ export function drawWaterAnim(ctx, world, cam, time) {
       }
       ctx.restore();
     }
+  }
+  ctx.restore();
+}
+
+// ---------- 夜间灯光 ----------
+export function nightStrength(hour) {
+  if (hour >= 18.5 || hour < 6) return 1;
+  if (hour >= 17.5) return (hour - 17.5) / 1;
+  if (hour < 6.8) return Math.max(0, 1 - (hour - 6) / 0.8);
+  return 0;
+}
+
+export function drawNightLights(ctx, world, cam, hour) {
+  const k = nightStrength(hour);
+  if (k <= 0.02) return;
+  const [vx0, vy0, vx1, vy1] = cam.viewRect(3);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const lamp of world.lamps) {
+    if (lamp.x < vx0 || lamp.x > vx1 || lamp.y < vy0 || lamp.y > vy1) continue;
+    const x = cam.sx(lamp.x), y = cam.sy(lamp.y);
+    const r = 46 * cam.zoom;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(255,214,150,${0.30 * k})`);
+    g.addColorStop(0.45, `rgba(255,196,120,${0.13 * k})`);
+    g.addColorStop(1, 'rgba(255,190,110,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,236,190,${0.9 * k})`;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.2 * cam.zoom, 0, Math.PI * 2);
+    ctx.fill();
   }
   ctx.restore();
 }
