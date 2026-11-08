@@ -333,6 +333,15 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 4px; font-si
 
 /* 恢复码弹窗必须盖在创建角色页之上（.screen 是 z-index 40） */
 #codeOverlay { z-index: 85; }
+
+/* 致命错误提示 */
+.fatal {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 200; background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(20,30,16,.4); padding: 22px 24px; width: min(520px, 92vw); text-align: center;
+}
+.fatal h3 { margin: 0 0 10px; color: var(--accent); }
+.fatal p { font-size: 13px; color: var(--ink-soft); margin: 0 0 14px; word-break: break-word; }
 .boot-logo { font-size: 30px; font-weight: 800; letter-spacing: .3em; color: var(--green-dark); }
 .boot-bar { width: min(260px, 60vw); height: 6px; background: #e2dbc7; border-radius: 999px; overflow: hidden; }
 .boot-bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width .25s ease; }

@@ -1,15 +1,15 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611081458';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611081458';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611081458';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611081503';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611081503';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611081503';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611081458';
-import { capturePhoto, savePhoto } from './photo.js?v=202611081458';
-import { MapView, MiniMap } from './minimap.js?v=202611081458';
-import * as ui from './ui.js?v=202611081458';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611081458';
+} from './progress.js?v=202611081503';
+import { capturePhoto, savePhoto } from './photo.js?v=202611081503';
+import { MapView, MiniMap } from './minimap.js?v=202611081503';
+import * as ui from './ui.js?v=202611081503';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611081503';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -285,9 +285,21 @@ export class Game {
     if (this.paused) return;
     const dt = Math.min(0.05, dtRaw || 0.016);
     this.frameTime = dtRaw;
-    this.update(dt);
-    this.render(now);
-    this.updateHud(now);
+    try {
+      this.update(dt);
+      this.render(now);
+      this.updateHud(now);
+    } catch (e) {
+      this.renderErrors = (this.renderErrors || 0) + 1;
+      if (this.renderErrors === 1) {
+        console.error('[yanyuan] 渲染异常', e);
+      }
+      if (this.renderErrors === 8) {
+        this.running = false;
+        ui.showFatal('画面渲染出错：' + (e && e.message ? e.message : String(e)) +
+          '\n请刷新页面重试；如果反复出现，把这行文字发给开发者。');
+      }
+    }
   }
 
   update(dt) {

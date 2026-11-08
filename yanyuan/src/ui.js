@@ -1,7 +1,7 @@
 // 界面层：HUD、提示、聊天、手册、弹窗
-import { escapeHtml, pad2 } from './util.js?v=202611081458';
-import { ACHIEVEMENTS } from './progress.js?v=202611081458';
-import { affinityLabel, AFF } from './cats.js?v=202611081458';
+import { escapeHtml, pad2 } from './util.js?v=202611081503';
+import { ACHIEVEMENTS } from './progress.js?v=202611081503';
+import { affinityLabel, AFF } from './cats.js?v=202611081503';
 
 const $ = (id) => document.getElementById(id);
 
@@ -175,6 +175,31 @@ export function flash() {
 export function bootProgress(p, text) {
   el.bootBar.style.width = Math.round(p * 100) + '%';
   if (text) el.bootText.textContent = text;
+}
+
+/** 致命错误：给出可读的提示，而不是黑屏 */
+export function showFatal(message) {
+  let box = document.getElementById('fatalBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'fatalBox';
+    box.className = 'fatal';
+    document.body.appendChild(box);
+  }
+  box.innerHTML = '';
+  const h = document.createElement('h3');
+  h.textContent = '出了点问题';
+  const p = document.createElement('p');
+  p.style.whiteSpace = 'pre-wrap';
+  p.textContent = String(message || '未知错误');
+  const btn = document.createElement('button');
+  btn.className = 'primarybtn';
+  btn.textContent = '刷新页面';
+  btn.onclick = () => location.reload();
+  box.appendChild(h);
+  box.appendChild(p);
+  box.appendChild(btn);
+  box.classList.remove('hidden');
 }
 
 export function hideBoot() {
