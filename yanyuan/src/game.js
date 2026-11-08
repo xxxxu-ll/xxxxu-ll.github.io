@@ -1,15 +1,15 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights } from './render.js';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611081458';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611081458';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611081458';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js';
-import { capturePhoto, savePhoto } from './photo.js';
-import { MapView, MiniMap } from './minimap.js';
-import * as ui from './ui.js';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js';
+} from './progress.js?v=202611081458';
+import { capturePhoto, savePhoto } from './photo.js?v=202611081458';
+import { MapView, MiniMap } from './minimap.js?v=202611081458';
+import * as ui from './ui.js?v=202611081458';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611081458';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -31,7 +31,11 @@ export class Game {
 
     this.canvas = ui.el.canvas;
     this.ctx = this.canvas.getContext('2d', { alpha: false });
+    // 低分辨率像素缓冲：世界画在这里，再整数倍放大到屏幕
+    this.low = document.createElement('canvas');
+    this.lowCtx = this.low.getContext('2d', { alpha: false });
     this.dpr = 1;
+    this.tagQueue = [];
     this.cam = new Camera();
     this.ground = new Ground(world);
     this.layers = layers;
@@ -129,9 +133,15 @@ export class Game {
     const w = window.innerWidth, h = window.innerHeight;
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
-    this.cam.updateSize(w, h);
-    this.cam.zoom = w < 760 ? 0.82 : 1;
+    this.cssW = w; this.cssH = h;
+    // 低分辨率缓冲：CSS 尺寸的一半，最后 2 倍最近邻放大
+    this.low.width = Math.ceil(w / UPSCALE);
+    this.low.height = Math.ceil(h / UPSCALE);
+    this.lowFactor = w / this.low.width;
+    this.cam.updateSize(this.low.width, this.low.height);
+    this.cam.zoom = 1;
     this.ctx.imageSmoothingEnabled = false;
+    this.lowCtx.imageSmoothingEnabled = false;
     this.updateTouchUi(w);
   }
 
@@ -500,17 +510,20 @@ export class Game {
   // ---------------- 渲染 ----------------
   render(now) {
     const ctx = this.ctx;
-    const dpr = this.dpr;
-    const W = this.cam.w, H = this.cam.h;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#7cb342';
-    ctx.fillRect(0, 0, W, H);
-    ctx.imageSmoothingEnabled = false;
+    const g = this.lowCtx;
+    const cam = this.cam;
+    cam.labels.length = 0;
+    this.tagQueue.length = 0;
 
-    this.ground.draw(ctx, this.cam);
-    drawWaterAnim(ctx, this.world, this.cam, now);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = '#6e9c37';
+    g.fillRect(0, 0, this.low.width, this.low.height);
+    g.imageSmoothingEnabled = false;
 
-    const view = this.cam.viewRect(6);
+    this.ground.draw(g, cam);
+    drawWaterAnim(g, this.world, cam, now);
+
+    const view = cam.viewRect(3);
     const now2 = new Date();
     const hour = this.hourOverride ?? (now2.getHours() + now2.getMinutes() / 60);
     const items = [];
@@ -518,6 +531,13 @@ export class Game {
     for (const b of this.world.buildings) {
       if (b.bbox[2] < view[0] || b.bbox[0] > view[2] || b.bbox[3] < view[1] || b.bbox[1] > view[3]) continue;
       items.push({ y: b.bbox[3], k: 'b', o: b });
+      if (b.name && b.area > 240 && !this.heroKind(b)) {
+        const d = Math.hypot(b.label[0] - cam.x, b.label[1] - cam.y);
+        if (d < 110) {
+          const a = Math.max(0.25, Math.min(0.9, 1 - (d - 60) / 60));
+          cam.label(b.name, b.label[0], b.label[1], 10.5, b.heritage ? '#ffe9b8' : '#fdfaf3', a);
+        }
+      }
     }
     for (const t of this.world.trees) {
       if (t.x < view[0] || t.x > view[2] || t.y < view[1] || t.y > view[3]) continue;
@@ -534,77 +554,100 @@ export class Game {
     items.push({ y: this.me.y, k: 'me', o: this.me });
     items.sort((a, b) => a.y - b.y);
 
-    // 地面标记
-    this.drawGroundMarks(ctx);
+    this.drawGroundMarks(g);
 
     for (const it of items) {
-      if (it.k === 'b') drawBuilding(ctx, it.o, this.cam, hour);
-      else if (it.k === 't') drawTree(ctx, it.o, this.cam);
-      else if (it.k === 'c') this.drawCatEntity(ctx, it.o);
-      else if (it.k === 'r') this.drawRemote(ctx, it.o);
-      else this.drawSelf(ctx);
+      if (it.k === 'b') {
+        const kind = this.heroKind(it.o);
+        if (kind) drawLandmark(g, it.o, cam, hour, kind);
+        else drawBuilding(g, it.o, cam, hour);
+      } else if (it.k === 't') drawTree(g, it.o, cam);
+      else if (it.k === 'c') this.drawCatEntity(g, it.o);
+      else if (it.k === 'r') this.drawRemote(g, it.o);
+      else this.drawSelf(g);
     }
 
-    // 粒子
+    // 心形粒子
     for (const p of this.heartParticles) {
-      const x = this.cam.sx(p.x), y = this.cam.sy(p.y);
-      ctx.fillStyle = `rgba(216,97,120,${clamp(p.life, 0, 1) * 0.9})`;
-      ctx.beginPath();
-      ctx.arc(x, y, 2.4 * this.cam.zoom, 0, Math.PI * 2);
-      ctx.fill();
+      const x = Math.round(cam.sx(p.x)), y = Math.round(cam.sy(p.y));
+      g.fillStyle = `rgba(216,97,120,${clamp(p.life, 0, 1)})`;
+      g.fillRect(x - 1, y - 1, 2, 2);
     }
 
-    // 目的地指示
-    this.drawWaypoint(ctx);
+    this.drawWaypoint(g);
 
     // 昼夜
-    drawTint(ctx, W, H, hour);
-    drawNightLights(ctx, this.world, this.cam, hour);
+    drawTint(g, this.low.width, this.low.height, hour);
+    drawNightLights(g, this.world, cam, hour);
 
-    // 拍照取景框
-    if (this.photoMode) this.drawPhotoFrame(ctx, W, H);
+    // 整数倍放大到屏幕（最近邻，像素块清晰）
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.low, 0, 0, this.low.width * UPSCALE, this.low.height * UPSCALE);
+
+    // 高清文字层（建筑名、玩家名牌、目的地距离）
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.flushText(ctx);
+
+    if (this.photoMode) this.drawPhotoFrame(ctx, this.cssW, this.cssH);
+  }
+
+  /** 世界坐标 → 屏幕 CSS 像素 */
+  px(x) { return this.cam.sx(x) * this.lowFactor; }
+  py(y) { return this.cam.sy(y) * this.lowFactor; }
+
+  heroKind(b) {
+    if (b._hero !== undefined) return b._hero;
+    let k = null;
+    if (b.name === '博雅塔') k = 'boya';
+    else if (b.name === '北京大学图书馆') k = 'library';
+    else if (b.name === '百周年纪念讲堂') k = 'podium';
+    else if (b.name === '北大西门' || (b.cat === '校门' && /西门/.test(b.name))) k = 'westgate';
+    b._hero = k;
+    return k;
+  }
+
+  flushText(ctx) {
+    const cam = this.cam;
+    const f = this.lowFactor;
+    for (const l of cam.labels) {
+      const x = cam.sx(l.x) * f, y = cam.sy(l.y) * f;
+      if (x < -60 || y < -20 || x > this.cssW + 60 || y > this.cssH + 20) continue;
+      drawLabel(ctx, l.text, x, y, Math.max(10, l.size), l.alpha, '#2c3527');
+    }
+    for (const t of this.tagQueue) {
+      const x = cam.sx(t.x) * f, y = cam.sy(t.y) * f;
+      if (x < -60 || y < -30 || x > this.cssW + 60 || y > this.cssH + 30) continue;
+      drawNameTag(ctx, t.text, x, y, 1, t.color, t.dim);
+    }
   }
 
   drawGroundMarks(ctx) {
     const cam = this.cam;
-    // 文物点
     for (const h of this.world.heritage) {
-      const x = cam.sx(h.x), y = cam.sy(h.y);
-      if (x < -20 || y < -20 || x > cam.w + 20 || y > cam.h + 20) continue;
-      ctx.fillStyle = 'rgba(217,164,65,.85)';
-      ctx.beginPath();
-      ctx.arc(x, y, 2.2 * cam.zoom, 0, Math.PI * 2);
-      ctx.fill();
-      if (dist(h.x, h.y, cam.x, cam.y) < 18) drawLabel(ctx, h.name, x, y - 8, 10, 0.6, '#5a4a22');
-    }
-    // 校门：画成一座小牌楼（若校门本身有建筑轮廓，则只标注名字）
-    for (const g of this.world.gates) {
-      const x = cam.sx(g.x), y = cam.sy(g.y);
-      if (x < -40 || y < -40 || x > cam.w + 40 || y > cam.h + 40) continue;
-      const z = cam.zoom;
-      const hasBuilding = this.world.buildings.some(b =>
-        g.x > b.bbox[0] - 3 && g.x < b.bbox[2] + 3 && g.y > b.bbox[1] - 3 && g.y < b.bbox[3] + 3);
-      if (!hasBuilding) {
-        ctx.save();
-        ctx.fillStyle = '#b8553f';
-        ctx.fillRect(x - 15 * z, y - 16 * z, 4 * z, 16 * z);
-        ctx.fillRect(x + 11 * z, y - 16 * z, 4 * z, 16 * z);
-        ctx.fillStyle = '#8f3a2a';
-        ctx.fillRect(x - 18 * z, y - 20 * z, 36 * z, 5 * z);
-        ctx.fillStyle = '#5c5a52';
-        ctx.beginPath();
-        ctx.moveTo(x - 22 * z, y - 20 * z);
-        ctx.lineTo(x - 12 * z, y - 27 * z);
-        ctx.lineTo(x + 12 * z, y - 27 * z);
-        ctx.lineTo(x + 22 * z, y - 20 * z);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#e8d9a8';
-        ctx.fillRect(x - 6 * z, y - 19 * z, 12 * z, 3.2 * z);
-        ctx.restore();
+      const x = Math.round(cam.sx(h.x)), y = Math.round(cam.sy(h.y));
+      if (x < -8 || y < -8 || x > cam.w + 8 || y > cam.h + 8) continue;
+      ctx.fillStyle = '#d8a94e';
+      ctx.fillRect(x - 1, y - 1, 2, 2);
+      if (dist(h.x, h.y, cam.x, cam.y) < 20) {
+        cam.label(h.name, h.x, h.y - 1.2, 10, '#f6e2a8', 0.75);
       }
-      if (dist(g.x, g.y, cam.x, cam.y) < 45) {
-        drawLabel(ctx, g.name, x, y - (hasBuilding ? 10 : 30) * z, 10.5, 0.85, '#6f2a1c');
+    }
+    for (const gt of this.world.gates) {
+      const x = Math.round(cam.sx(gt.x)), y = Math.round(cam.sy(gt.y));
+      if (x < -30 || y < -30 || x > cam.w + 30 || y > cam.h + 30) continue;
+      const hasBuilding = this.world.buildings.some(b =>
+        gt.x > b.bbox[0] - 3 && gt.x < b.bbox[2] + 3 && gt.y > b.bbox[1] - 3 && gt.y < b.bbox[3] + 3);
+      if (!hasBuilding) {
+        // 小牌楼
+        ctx.fillStyle = '#b04a38';
+        ctx.fillRect(x - 6, y - 7, 2, 7);
+        ctx.fillRect(x + 4, y - 7, 2, 7);
+        ctx.fillStyle = '#4f5a63';
+        ctx.fillRect(x - 8, y - 9, 16, 3);
+        ctx.fillStyle = '#8a3a2c';
+        ctx.fillRect(x - 7, y - 8, 14, 2);
+        if (dist(gt.x, gt.y, cam.x, cam.y) < 40) cam.label(gt.name, gt.x, gt.y - 2.6, 10, '#ffd9b0', 0.85);
       }
     }
   }
@@ -612,75 +655,68 @@ export class Game {
   drawCatEntity(ctx, c) {
     const st = catState(this.progress, c.id);
     const sheet = getCatSheet(c.color);
-    const x = this.cam.sx(c.x), y = this.cam.sy(c.y);
+    const x = Math.round(this.cam.sx(c.x)), y = Math.round(this.cam.sy(c.y));
     let pose = c.pose;
     if (pose === 'walk1' || pose === 'walk2') pose = c.walkFrame || 'walk1';
-    drawCat(ctx, sheet, pose, c.facingLeft, x, y, this.cam.zoom);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    const S = 0.85;
+    const w = 18 * S, h = 14 * S;
+    ctx.fillStyle = 'rgba(36,46,30,.22)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 5, 1.6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const idx = { sit: 0, walk1: 1, walk2: 2, sleep: 3, happy: 4 }[pose] ?? 0;
+    const row = c.facingLeft ? 1 : 0;
+    ctx.drawImage(sheet, idx * 18, row * 14, 18, 14, Math.round(x - w / 2), Math.round(y - h + 1), Math.round(w), Math.round(h));
+    ctx.restore();
     const near = dist(c.x, c.y, this.me.x, this.me.y);
-    if (st.a > 0 && near < 26) {
-      drawNameTag(ctx, c.name, x, y - 16 * this.cam.zoom, this.cam.zoom, '#ffe9b8');
-      if (st.f) {
-        ctx.fillStyle = 'rgba(216,97,120,.9)';
-        ctx.beginPath();
-        ctx.arc(x + 9 * this.cam.zoom, y - 22 * this.cam.zoom, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    } else if (near < 13) {
-      drawNameTag(ctx, '？', x, y - 16 * this.cam.zoom, this.cam.zoom, 'rgba(255,255,255,.8)');
-    }
+    if (st.a > 0 && near < 26) this.tagQueue.push({ text: c.name, x: c.x, y: c.y - 1.4, color: '#ffe9b8' });
+    else if (near < 13) this.tagQueue.push({ text: '？', x: c.x, y: c.y - 1.4, color: 'rgba(255,255,255,.85)' });
   }
 
   drawSelf(ctx) {
     const me = this.me;
     const sheet = getCharacterSheet(this.character.appearance);
     const x = this.cam.sx(me.x), y = this.cam.sy(me.y);
-    drawCharacter(ctx, sheet, me.dir, me.frame, x, y, this.cam.zoom, { bike: me.mode === 'bike' });
-    drawNameTag(ctx, this.character.name, x, y - 32 * this.cam.zoom, this.cam.zoom, '#fff8dc');
+    drawCharacter(ctx, sheet, me.dir, me.frame, x, y, 0.7, { bike: me.mode === 'bike' });
+    this.tagQueue.push({ text: this.character.name, x: me.x, y: me.y - 1.85, color: '#fff8dc' });
   }
 
   drawRemote(ctx, r) {
     const sheet = getCharacterSheet(r.appearance || {});
     const x = this.cam.sx(r.x), y = this.cam.sy(r.y);
-    drawCharacter(ctx, sheet, r.dir || 'down', r.frame || 0, x, y, this.cam.zoom, { bike: r.mode === 'bike' });
-    drawNameTag(ctx, r.name, x, y - 32 * this.cam.zoom, this.cam.zoom, '#d9ecff');
+    drawCharacter(ctx, sheet, r.dir || 'down', r.frame || 0, x, y, 0.7, { bike: r.mode === 'bike' });
+    this.tagQueue.push({ text: r.name, x: r.x, y: r.y - 1.85, color: '#d9ecff' });
   }
 
   drawWaypoint(ctx) {
     if (!this.waypoint) return;
     const cam = this.cam;
     const { x, y } = this.waypoint;
-    const sx = cam.sx(x), sy = cam.sy(y);
-    const onScreen = sx > 30 && sy > 30 && sx < cam.w - 30 && sy < cam.h - 30;
+    const sx = Math.round(cam.sx(x)), sy = Math.round(cam.sy(y));
+    const onScreen = sx > 10 && sy > 10 && sx < cam.w - 10 && sy < cam.h - 10;
     if (onScreen) {
-      const d = Math.round(dist(this.me.x, this.me.y, x, y));
-      ctx.save();
-      ctx.fillStyle = 'rgba(200,85,61,.92)';
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.lineTo(sx - 7, sy - 16);
-      ctx.lineTo(sx + 7, sy - 16);
-      ctx.closePath();
-      ctx.fill();
-      drawLabel(ctx, (this.waypoint.name || '目的地') + ` · ${d}m`, sx, sy - 26, 11, 0.95, '#7a2e20');
-      ctx.restore();
+      ctx.fillStyle = '#c8553d';
+      ctx.fillRect(sx - 1, sy - 10, 2, 10);
+      ctx.fillRect(sx - 4, sy - 11, 8, 4);
+      ctx.fillStyle = '#fdfaf3';
+      ctx.fillRect(sx - 1, sy - 10, 2, 2);
+      cam.label((this.waypoint.name || '目的地') + ' · ' + Math.round(dist(this.me.x, this.me.y, x, y)) + 'm',
+        x, y - 3.2, 10.5, '#ffd0c0', 0.95);
     } else {
-      // 屏幕边缘指示
-      const dx = sx - cam.w / 2, dy = sy - cam.h / 2;
+      const dx = cam.sx(x) - cam.w / 2, dy = cam.sy(y) - cam.h / 2;
       const ang = Math.atan2(dy, dx);
-      const rx = Math.min(cam.w / 2 - 34, Math.abs(Math.cos(ang)) * 1e9);
-      const ry = Math.min(cam.h / 2 - 34, Math.abs(Math.sin(ang)) * 1e9);
-      const r = Math.min(rx / Math.max(0.001, Math.abs(Math.cos(ang))), ry / Math.max(0.001, Math.abs(Math.sin(ang))));
-      const px = cam.w / 2 + Math.cos(ang) * r, py = cam.h / 2 + Math.sin(ang) * r;
+      const r = Math.min(cam.w / 2 - 8, cam.h / 2 - 8);
+      const px = Math.round(cam.w / 2 + Math.cos(ang) * r);
+      const py = Math.round(cam.h / 2 + Math.sin(ang) * r);
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(ang);
-      ctx.fillStyle = 'rgba(200,85,61,.92)';
-      ctx.beginPath();
-      ctx.moveTo(12, 0); ctx.lineTo(-8, -7); ctx.lineTo(-8, 7);
-      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c8553d';
+      ctx.fillRect(-1, -4, 8, 8);
       ctx.restore();
-      const d = Math.round(dist(this.me.x, this.me.y, x, y));
-      drawLabel(ctx, `${d}m`, px, py + 14, 11, 0.9, '#7a2e20');
+      cam.label(Math.round(dist(this.me.x, this.me.y, x, y)) + 'm', x, y, 10, '#ffd0c0', 0.9);
     }
   }
 
