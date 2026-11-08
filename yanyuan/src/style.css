@@ -330,6 +330,9 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 4px; font-si
 
 .boot { position: absolute; inset: 0; background: #f6f2e6; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 90; transition: opacity .4s ease; }
 .boot.done { opacity: 0; pointer-events: none; }
+
+/* 恢复码弹窗必须盖在创建角色页之上（.screen 是 z-index 40） */
+#codeOverlay { z-index: 85; }
 .boot-logo { font-size: 30px; font-weight: 800; letter-spacing: .3em; color: var(--green-dark); }
 .boot-bar { width: min(260px, 60vw); height: 6px; background: #e2dbc7; border-radius: 999px; overflow: hidden; }
 .boot-bar i { display: block; height: 100%; width: 0; background: var(--green); transition: width .25s ease; }
