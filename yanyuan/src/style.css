@@ -227,6 +227,8 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 .help-body { padding: 6px 22px 20px; }
 .help-body ul { padding-left: 18px; margin: 10px 0; }
 .help-body li { margin: 5px 0; font-size: 13.5px; }
+.help-code { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.help-code .code-box { font-size: 16px; padding: 10px; letter-spacing: .1em; margin: 8px 0; }
 
 /* 开始屏 */
 .screen {
@@ -278,6 +280,16 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 .swatch.style.sel { background: #e8f1da; color: var(--green-dark); font-weight: 700; }
 .create-actions { display: flex; gap: 10px; margin-top: 6px; }
 #createError { color: var(--accent); min-height: 16px; margin: 2px 0 0; }
+#createError.ok { color: var(--green-dark); }
+.name-hint { font-size: 11.5px; min-height: 15px; }
+.name-hint.ok { color: var(--green-dark); }
+.name-hint.bad { color: var(--accent); }
+.create-recover {
+  margin-top: 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px;
+  background: var(--paper-2);
+}
+.create-recover p { margin: 0 0 8px; }
+.create-recover-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* 恢复码 */
 .restore-inner { background: var(--paper); border-radius: 18px; padding: 24px; width: min(470px, 94vw); box-shadow: 0 20px 60px rgba(20,30,16,.35); }

@@ -130,6 +130,14 @@
           <li><b>存档</b>：进度保存在服务器，换设备用恢复码登录。</li>
         </ul>
         <p class="muted small">非官方学生作品，与北京大学无隶属关系。地图基于 OpenStreetMap 数据（ODbL）与公开影像配准，仅供游玩，不作测绘用途。</p>
+        <div class="help-code">
+          <p class="small"><b>你的恢复码</b>（只在本机显示，换设备登录要用它）：</p>
+          <div class="code-box" id="helpCode">—</div>
+          <div class="create-recover-actions">
+            <button class="ghostbtn" id="helpCodeCopy">复制恢复码</button>
+            <button class="ghostbtn" id="helpCodeSave">存为文本</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -162,6 +170,7 @@
           <label class="field">
             <span>昵称</span>
             <input id="inName" type="text" maxlength="12" placeholder="2–12 个字" autocomplete="off" />
+            <span class="name-hint" id="nameHint"></span>
           </label>
           <div class="field-row" id="styleRows"></div>
           <div class="field-row two">
@@ -176,7 +185,14 @@
             <button class="primarybtn" id="btnEnter">进入燕园</button>
             <button class="ghostbtn" id="btnBackStart">返回</button>
           </div>
-          <p class="small muted" id="createError"></p>
+          <p class="small" id="createError"></p>
+          <div class="create-recover hidden" id="createRecover">
+            <p class="small muted">如果这个昵称是你之前建的，可以直接找回，不用重新捏人：</p>
+            <div class="create-recover-actions">
+              <button class="ghostbtn" id="btnGoRestore">用恢复码登录</button>
+              <button class="ghostbtn hidden" id="btnResumeLocal">继续我上次的角色</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

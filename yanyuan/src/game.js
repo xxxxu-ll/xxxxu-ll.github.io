@@ -9,7 +9,7 @@ import {
 import { capturePhoto, savePhoto } from './photo.js';
 import { MapView, MiniMap } from './minimap.js';
 import * as ui from './ui.js';
-import { clamp, dist, sanitizeText } from './util.js';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -218,8 +218,24 @@ export class Game {
     document.getElementById('btnMap').onclick = () => this.openMap();
     document.getElementById('minimap').onclick = () => this.openMap();
     document.getElementById('btnJournal').onclick = () => this.openJournal();
-    document.getElementById('btnHelp').onclick = () => ui.el.helpOverlay.classList.remove('hidden');
+    document.getElementById('btnHelp').onclick = () => this.showHelp();
     document.getElementById('helpClose').onclick = () => ui.el.helpOverlay.classList.add('hidden');
+    document.getElementById('helpCodeCopy').onclick = async () => {
+      const code = localStorage.getItem('yanyuan.token') || '';
+      if (!code) return;
+      try { await navigator.clipboard.writeText(formatRecovery(code)); ui.toast('恢复码已复制', 'good'); }
+      catch { ui.toast('复制失败，请手动抄写', 'warn'); }
+    };
+    document.getElementById('helpCodeSave').onclick = () => {
+      const code = localStorage.getItem('yanyuan.token') || '';
+      if (!code) return;
+      const blob = new Blob([`像素燕园 · 角色恢复码\n\n${formatRecovery(code)}\n\n请妥善保存。任何人拿到它都能登录你的角色。\n`], { type: 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'yanyuan-恢复码.txt';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    };
     document.getElementById('btnPhoto').onclick = () => this.takePhoto();
     document.getElementById('mapClose').onclick = () => this.closeMap();
     document.getElementById('journalClose').onclick = () => ui.el.journalOverlay.classList.add('hidden');
@@ -877,6 +893,13 @@ export class Game {
   openJournal() {
     ui.renderJournal(this.world, this.progress);
     ui.el.journalOverlay.classList.remove('hidden');
+  }
+
+  showHelp() {
+    const code = localStorage.getItem('yanyuan.token') || '';
+    const box = document.getElementById('helpCode');
+    if (box) box.textContent = code ? formatRecovery(code) : '（本机没有登录状态）';
+    ui.el.helpOverlay.classList.remove('hidden');
   }
 
   // ---------------- 拍照 ----------------

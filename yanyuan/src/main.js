@@ -160,6 +160,7 @@ function buildCreator() {
 
   $('inName').addEventListener('input', () => {
     $('previewName').textContent = $('inName').value || '未命名';
+    scheduleNameCheck();
   });
   $('inDept').addEventListener('input', () => {
     $('previewSub').textContent = [$('inDept').value, $('inGrade').value].filter(Boolean).join(' · ');
@@ -169,8 +170,47 @@ function buildCreator() {
   });
 }
 
-function drawPreview() {
-  const c = $('previewCanvas');
+// ---------------- 昵称实时可用性 ----------------
+let nameTimer = null;
+let nameSeq = 0;
+
+function scheduleNameCheck() {
+  const hint = $('nameHint');
+  if (nameTimer) clearTimeout(nameTimer);
+  const name = $('inName').value.trim();
+  if ([...name].length < 2) { hint.textContent = ''; hint.className = 'name-hint'; return; }
+  hint.textContent = '检查中…';
+  hint.className = 'name-hint';
+  nameTimer = setTimeout(async () => {
+    const seq = ++nameSeq;
+    try {
+      const r = await state.api.checkName(name);
+      if (seq !== nameSeq) return;
+      if (r.available) {
+        hint.textContent = '✓ 这个昵称可以用';
+        hint.className = 'name-hint ok';
+        $('createRecover').classList.add('hidden');
+      } else {
+        const when = r.takenSince ? new Date(r.takenSince) : null;
+        const stamp = when ? `（${when.getMonth() + 1} 月 ${when.getDate()} 日 ${String(when.getHours()).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')} 创建）` : '';
+        hint.textContent = '✗ 已被占用' + stamp;
+        hint.className = 'name-hint bad';
+        showRecoverHint();
+      }
+    } catch {
+      hint.textContent = '';
+      hint.className = 'name-hint';
+    }
+  }, 450);
+}
+
+function showRecoverHint() {
+  $('createRecover').classList.remove('hidden');
+  const hasLocal = !!localStorage.getItem('yanyuan.token');
+  $('btnResumeLocal').classList.toggle('hidden', !hasLocal);
+}
+
+function drawPreview() {  const c = $('previewCanvas');
   const ctx = c.getContext('2d');
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, c.width, c.height);
@@ -208,6 +248,29 @@ function bindScreens() {
     drawPreview();
     setTimeout(() => $('inName').focus(), 50);
   };
+  $('btnGoRestore').onclick = () => {
+    $('createScreen').classList.add('hidden');
+    $('restoreScreen').classList.remove('hidden');
+    setTimeout(() => $('inRecovery').focus(), 50);
+  };
+  $('btnResumeLocal').onclick = async () => {
+    const btn = $('btnResumeLocal');
+    btn.disabled = true;
+    btn.textContent = '正在恢复…';
+    try {
+      const token = localStorage.getItem('yanyuan.token');
+      if (!token) throw new Error('本机没有登录状态');
+      const res = await state.api.session(token);
+      enterGame(res.character, res.progress || {});
+    } catch (e) {
+      $('createError').textContent = '本机登录状态无法恢复：' + (e.message || '请用恢复码登录');
+      btn.classList.add('hidden');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '继续我上次的角色';
+    }
+  };
+
   $('btnBackStart').onclick = () => {
     $('createScreen').classList.add('hidden');
     $('startScreen').classList.remove('hidden');
@@ -232,6 +295,7 @@ function bindScreens() {
   $('btnEnter').onclick = async () => {
     const name = $('inName').value.trim();
     const err = $('createError');
+    $('createRecover').classList.add('hidden');
     if ([...name].length < 2 || [...name].length > 12) {
       err.textContent = '昵称需要 2–12 个字符';
       return;
@@ -252,7 +316,12 @@ function bindScreens() {
       ui.showRecovery(res.recovery);
       ui.el.codeOverlay.dataset.pending = JSON.stringify({ character: res.character, progress: res.progress || {} });
     } catch (e) {
-      err.textContent = e.message || '创建失败，请稍后再试';
+      if (e.code === 'name_taken') {
+        err.textContent = '这个昵称已经被占用了。如果是你自己之前建的，用下面的方式找回，不用重新捏人。';
+        showRecoverHint();
+      } else {
+        err.textContent = e.message || '创建失败，请稍后再试';
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = '进入燕园';
