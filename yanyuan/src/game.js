@@ -1,17 +1,17 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090834';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090834';
-import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611090834';
-import { heritageText } from './heritage.js?v=202611090834';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090847';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090847';
+import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611090847';
+import { heritageText } from './heritage.js?v=202611090847';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611090834';
-import { capturePhoto, savePhoto } from './photo.js?v=202611090834';
-import { MapView, MiniMap } from './minimap.js?v=202611090834';
-import { placeFor } from './places.js?v=202611090834';
-import * as ui from './ui.js?v=202611090834';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090834';
+} from './progress.js?v=202611090847';
+import { capturePhoto, savePhoto } from './photo.js?v=202611090847';
+import { MapView, MiniMap } from './minimap.js?v=202611090847';
+import { placeFor } from './places.js?v=202611090847';
+import * as ui from './ui.js?v=202611090847';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090847';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
