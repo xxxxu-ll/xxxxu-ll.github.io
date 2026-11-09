@@ -1,7 +1,7 @@
 // 图块素材：来源于 CC0 公共领域素材包 Ninja Adventure（pixel-boy）
 // https://github.com/pixel-boy/NinjaAdventure  ·  License: CC0-1.0
 // 只取其中 16×16 的地面瓦片；建筑用程序化图块（同一套调色板）
-import { mulberry32 } from './util.js?v=202611091202';
+import { mulberry32 } from './util.js?v=202611091209';
 
 export const TILE = 16;            // 图块像素
 export const TILE_M = 2;           // 一格 = 2 米
@@ -63,17 +63,21 @@ export function drawRoofTile(ctx, base, dx, dy, px = TILE, seed = 1) {
   const rng = mulberry32(seed * 977 + dx * 31 + dy * 17);
   ctx.fillStyle = base;
   ctx.fillRect(dx, dy, px, px);
-  const step = px / 4;
-  for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = shade(base, i % 2 ? 0.92 : 0.97);
-    ctx.fillRect(dx, dy + i * step, px, step * 0.55);
-    ctx.fillStyle = shade(base, 0.78);
-    ctx.fillRect(dx, dy + i * step + step * 0.55, px, Math.max(1, step * 0.18));
-  }
-  // 抖色颗粒
-  for (let i = 0; i < 6; i++) {
-    ctx.fillStyle = rng() > 0.5 ? shade(base, 1.06) : shade(base, 0.9);
-    ctx.fillRect(dx + Math.floor(rng() * px), dy + Math.floor(rng() * px), 1, 1);
+  // 小瓦：2 列 x 4 行，错缝排列
+  const cw = px / 2, ch = px / 4;
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 2; c++) {
+      const off = (r % 2) * cw * 0.5;
+      const x = dx + c * cw + (off > 0 ? -cw * 0.5 : 0);
+      ctx.fillStyle = shade(base, 0.94 + (rng() - 0.5) * 0.08);
+      ctx.fillRect(x, dy + r * ch, cw, ch * 0.86);
+      // 瓦头高光 + 缝
+      ctx.fillStyle = shade(base, 1.12);
+      ctx.fillRect(x, dy + r * ch, cw, Math.max(1, ch * 0.18));
+      ctx.fillStyle = shade(base, 0.72);
+      ctx.fillRect(x, dy + r * ch + ch * 0.86, cw, Math.max(1, ch * 0.14));
+      ctx.fillRect(x + cw - 1, dy + r * ch, 1, ch * 0.86);
+    }
   }
 }
 

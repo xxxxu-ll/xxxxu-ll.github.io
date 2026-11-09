@@ -1,5 +1,5 @@
 // 地图数据装载与索引：碰撞、空间网格、树木生成、地标检索
-import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611091202';
+import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611091209';
 
 export const PPM = 8; // 每米像素数（世界渲染基准）
 

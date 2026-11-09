@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091202';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091202';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091209';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091209';
 
 // 静园片区（米）：涵盖静园草坪、三院到六院、哲学楼、燕南食堂
 export const PILOT = { x0: -250, y0: 90, x1: 130, y1: 400 };
@@ -33,7 +33,7 @@ export function buildCells(world) {
       if (type === 'grass') {
         for (const r of roads) {
           if (x < r.bbox[0] - 6 || x > r.bbox[2] + 6 || y < r.bbox[1] - 6 || y > r.bbox[3] + 6) continue;
-          const half = r.w * 0.5 + 1.2;
+          const half = r.w * 0.5 + 2.4;
           for (let i = 0; i < r.pts.length - 2; i += 2) {
             if (distToSeg(x, y, r.pts[i], r.pts[i + 1], r.pts[i + 2], r.pts[i + 3]) < half) { type = 'path'; break; }
           }
@@ -73,9 +73,20 @@ export function drawPilotGround(ctx, cam) {
       const px = Math.round(TILE_M * S);
       if (dx > cam.w || dy > cam.h || dx + px < 0 || dy + px < 0) continue;
       if (!drawGroundTile(ctx, kind, dx, dy, px)) {
-        // 素材没加载好时的兜底色
-        ctx.fillStyle = kind === 'water' ? '#3aa5d6' : kind === 'path' ? '#cdd4c8' : '#57a03c';
+        ctx.fillStyle = kind === 'water' ? '#3aa5d6' : kind === 'path' ? '#b9c0b4' : '#57a03c';
         ctx.fillRect(dx, dy, px, px);
+      }
+      if (kind === 'path') {
+        // 压暗 + 只在挨着草地/水的那一边描边，读作"路缘"
+        ctx.fillStyle = 'rgba(56,54,44,.36)';
+        ctx.fillRect(dx, dy, px, px);
+        ctx.fillStyle = 'rgba(54,50,40,.45)';
+        const nb = (dcx, dcy) => cells.get((cx + dcx) + ',' + (cy + dcy)) || 'grass';
+        const lw = Math.max(1, Math.round(px * 0.08));
+        if (nb(0, -1) !== 'path') ctx.fillRect(dx, dy, px, lw);
+        if (nb(0, 1) !== 'path') ctx.fillRect(dx, dy + px - lw, px, lw);
+        if (nb(-1, 0) !== 'path') ctx.fillRect(dx, dy, lw, px);
+        if (nb(1, 0) !== 'path') ctx.fillRect(dx + px - lw, dy, lw, px);
       }
     }
   }
@@ -93,42 +104,62 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand) 
   if (dx1 < 0 || dy1 < 0 || dx0 > cam.w || dy0 > cam.h) return;
 
   // 投影
-  ctx.fillStyle = 'rgba(30,42,30,.20)';
-  ctx.fillRect(dx0 + px * 0.3, dy0 + px * 0.45, w, h);
+  ctx.fillStyle = 'rgba(30,42,30,.18)';
+  ctx.fillRect(dx0 + px * 0.35, dy1 - px * 0.4, w, px * 0.9);
 
   // 墙体：南侧一条，高度按层数（每层一格）
-  const floors = Math.max(1, Math.min(4, b.fl || 2));
-  const wallPx = px * floors;
-  ctx.fillStyle = wallColor;
-  ctx.fillRect(dx0, dy1 - 1, w, wallPx);
-  const cols = Math.max(1, Math.round(w / px));
-  const cw = w / cols;
-  for (let i = 0; i < cols; i++) {
-    drawWallTile(ctx, wallColor, i === Math.floor(cols / 2) ? 2 : windowBand,
-      Math.round(dx0 + i * cw), Math.round(dy1 - 1), Math.max(2, Math.round(cw)), b.id || 1);
-  }
-  // 屋脊/檐口
-  ctx.fillStyle = 'rgba(60,44,30,.35)';
-  ctx.fillRect(dx0, dy1 - 2, w, 2);
+  // 墙高 = max(层数×1格, 进深的 46%)，让正面站得住
+  const depth = dy1 - dy0;
+  const floors = Math.max(1, Math.min(5, b.fl || 2));
+  const wallPx = Math.max(px * 1.5, Math.round(Math.max(px * floors, depth * 0.46)));
+  const roofTop = dy0 - wallPx;              // 屋顶整体上移，盖在墙顶
+  const roofBot = dy1 - wallPx;
 
-  // 屋顶：按格铺瓦（裁到多边形）
+  // 先铺墙（从屋顶下沿到地基）
+  ctx.fillStyle = wallColor;
+  ctx.fillRect(dx0, roofBot, w, wallPx);
+  const rows = Math.max(1, Math.round(wallPx / px));
+  const cols = Math.max(1, Math.round(w / px));
+  const cw = w / cols, chh = wallPx / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let i = 0; i < cols; i++) {
+      const isDoor = r === rows - 1 && i === Math.floor(cols / 2);
+      const band = isDoor ? 2 : (r === 0 && rows > 1 ? 0 : windowBand);
+      drawWallTile(ctx, wallColor, band,
+        Math.round(dx0 + i * cw), Math.round(roofBot + r * chh),
+        Math.max(2, Math.round(cw)), (b.id || 1) + r * 7);
+    }
+  }
+  // 勒脚
+  ctx.fillStyle = 'rgba(50,42,32,.28)';
+  ctx.fillRect(dx0, dy1 - Math.max(1, px * 0.16), w, Math.max(1, px * 0.16));
+
+  // 屋顶：铺在墙顶之上
   ctx.save();
-  ctx.beginPath(); ctx.rect(dx0, dy0, w, h); ctx.clip();
-  for (let y = dy0; y < dy1; y += px) {
+  ctx.beginPath(); ctx.rect(dx0, roofTop, w, depth); ctx.clip();
+  for (let y = roofTop; y < roofBot + px; y += px) {
     for (let x = dx0; x < dx1; x += px) {
       drawRoofTile(ctx, roofColor, x, y, px, (b.id || 1) + x + y);
     }
   }
   ctx.restore();
+  // 檐口（屋顶最低一排压暗）
+  ctx.fillStyle = 'rgba(30,20,12,.30)';
+  ctx.fillRect(dx0, roofBot - Math.max(1, px * 0.18), w, Math.max(1, px * 0.18));
+  ctx.strokeStyle = 'rgba(28,22,18,.5)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(dx0 + 0.5, roofTop + 0.5, w - 1, depth + wallPx - 1);
 
   // 正脊
-  const horiz = w >= h;
+  const horiz = w >= depth;
   ctx.save();
-  ctx.beginPath(); ctx.rect(dx0, dy0, w, h); ctx.clip();
+  ctx.beginPath(); ctx.rect(dx0, roofTop, w, depth); ctx.clip();
   if (horiz) {
-    for (let x = dx0; x < dx1; x += px) drawRidgeTile(ctx, roofColor, x, Math.round(dy0 + h / 2 - px / 2), px);
+    const ry = Math.round(roofTop + depth / 2 - px / 2);
+    for (let x = dx0; x < dx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
   } else {
-    for (let y = dy0; y < dy1; y += px) drawRidgeTile(ctx, roofColor, Math.round(dx0 + w / 2 - px / 2), y, px);
+    const rx = Math.round(dx0 + w / 2 - px / 2);
+    for (let y = roofTop; y < roofBot + px; y += px) drawRidgeTile(ctx, roofColor, rx, y, px);
   }
   ctx.restore();
 
