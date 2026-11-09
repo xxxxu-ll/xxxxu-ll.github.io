@@ -1,5 +1,5 @@
 // 地图数据装载与索引：碰撞、空间网格、树木生成、地标检索
-import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090917';
+import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090930';
 
 export const PPM = 8; // 每米像素数（世界渲染基准）
 
@@ -37,6 +37,9 @@ export class World {
         id: b.id, name: b.name, cat: b.cat, h: b.h, fl: b.fl, roof: b.roof, style: b.style,
         label: [b.label[0] * S, b.label[1] * S], polys, outer, bbox, area,
         alias: b.alias || [], heritage: !!b.heritage, sortY: bbox[3],
+        st: b.st || null,                       // 来自 style.csv 的真实风格数据
+        h: (b.st && b.st.h) || b.h,
+        fl: (b.st && b.st.fl) || b.fl,
         hero: HERO_BY_NAME[b.name] || null,
       };
     });

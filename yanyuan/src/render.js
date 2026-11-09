@@ -367,6 +367,21 @@ export class Ground {
       .filter(r => hit(r.bbox, x0, y0, x1, y1))
       .sort((a, b) => b.w - a.w);
     const sty = (r) => ROAD_STYLE[r.kind] || ROAD_STYLE.footway;
+    // 人行道：车行道两侧先铺 3.5 米浅色铺装，再让路面压在中间
+    for (const r of roads) {
+      if (r.w < 3.2) continue;
+      g.beginPath(); traceLine(g, r._pts);
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      g.strokeStyle = '#c3c9bd';
+      g.lineWidth = r.w + 7;
+      g.stroke();
+      g.strokeStyle = 'rgba(150,158,146,.55)';
+      g.lineWidth = r.w + 7;
+      g.setLineDash([1.2, 3.4]);
+      g.stroke();
+      g.setLineDash([]);
+    }
     const narrow = roads.filter(r => r.w < 3.2);
     const wide = roads.filter(r => r.w >= 3.2);
     // 先画步道，再画车行道：车行道压住步道的穿越部分，步道就"停在路边"
@@ -962,10 +977,26 @@ export function drawBuilding(ctx, b, cam, hour) {
   const seed = hashStr((b.name || '') + b.id);
   const rng = mulberry32(seed);
   const night = nightStrength(hour) > 0.15;
-  const variant = pickVariant(b);
+  let variant = pickVariant(b);
+  // ---- 有 style.csv 的真实数据时优先 ----------------
+  const stData = b.st;
+  if (stData) {
+    const rf = stData.rf || '';
+    if (rf.includes('平顶')) variant = 'flat';
+    else if (rf.includes('塔楼') || rf.includes('攒尖')) variant = 'tower';
+    else if (rf.includes('歇山') || rf.includes('四坡')) variant = 'hip';
+    else if (rf.includes('双坡') || rf.includes('悬山')) variant = 'gable';
+  }
 
   const weights = CAT_ROOF_WEIGHTS[b.cat] || CAT_ROOF_WEIGHTS['教学'];
-  const fam = ROOF_FAMILY[weights[seed % weights.length] % ROOF_FAMILY.length];
+  let fam = ROOF_FAMILY[weights[seed % weights.length] % ROOF_FAMILY.length];
+  if (stData) {
+    const tile = stData.tile || '';
+    if (tile.includes('灰瓦')) fam = ROOF_FAMILY[3];
+    else if (tile.includes('红瓦')) fam = ROOF_FAMILY[0];
+    else if (tile.includes('琉璃')) fam = ROOF_FAMILY[6];
+    else if (tile.includes('青瓦')) fam = ROOF_FAMILY[2];
+  }
   const walls = WALL_TYPE[b.cat] || WALL_TYPE['教学'];
   let [roof, roofDark] = fam;
   const wall = walls[seed % walls.length];
@@ -1314,28 +1345,19 @@ export function drawBuilding(ctx, b, cam, hour) {
   } else if (variant === 'hip') {
     // 四坡：脊缩短，四条斜脊
     const inset = 0.22;
+    const rectish = false;   // 任意多边形不画斜脊，只保留正脊与坡度
     if (horiz) {
       ctx.fillStyle = roofDark;
       ctx.fillRect(bb[0] + w * inset, midY - 0.9, w * (1 - inset * 2), 1.8);
-      ctx.strokeStyle = 'rgba(60,26,14,.35)';
+      ctx.strokeStyle = 'rgba(60,26,14,.30)';
       ctx.lineWidth = 0.8;
       ctx.beginPath();
-      ctx.moveTo(bb[0] + 1, bb[1] + 1); ctx.lineTo(bb[0] + w * inset, midY);
-      ctx.moveTo(bb[2] - 1, bb[1] + 1); ctx.lineTo(bb[2] - w * inset, midY);
-      ctx.moveTo(bb[0] + 1, bb[3] - 1); ctx.lineTo(bb[0] + w * inset, midY);
-      ctx.moveTo(bb[2] - 1, bb[3] - 1); ctx.lineTo(bb[2] - w * inset, midY);
-      ctx.stroke();
     } else {
       ctx.fillStyle = roofDark;
       ctx.fillRect(midX - 0.9, bb[1] + h * inset, 1.8, h * (1 - inset * 2));
-      ctx.strokeStyle = 'rgba(60,26,14,.35)';
+      ctx.strokeStyle = 'rgba(60,26,14,.30)';
       ctx.lineWidth = 0.8;
       ctx.beginPath();
-      ctx.moveTo(bb[0] + 1, bb[1] + 1); ctx.lineTo(midX, bb[1] + h * inset);
-      ctx.moveTo(bb[0] + 1, bb[3] - 1); ctx.lineTo(midX, bb[3] - h * inset);
-      ctx.moveTo(bb[2] - 1, bb[1] + 1); ctx.lineTo(midX, bb[1] + h * inset);
-      ctx.moveTo(bb[2] - 1, bb[3] - 1); ctx.lineTo(midX, bb[3] - h * inset);
-      ctx.stroke();
     }
     // 瓦垄 + 背光坡
     ctx.fillStyle = 'rgba(60,30,18,.10)';
