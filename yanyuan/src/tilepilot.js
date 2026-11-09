@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091309';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091309';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091318';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091318';
 
 // 全图图块（阶段 3：静园试点定稿后铺满全校）
 export const TILE_WHOLE_MAP = true;
@@ -132,7 +132,7 @@ export function drawPilotGround(ctx, cam) {
   }
 }
 
-/** 楼的主轴角度（取最长边，归到 -45°~45°），用来让瓦片顺着楼走，而不是死对屏幕 */
+/** 楼的主轴角度（最长边，归到 -45°~45°）：只用来让瓦片顺着屋檐，不旋转整栋楼 */
 function dominantAngle(b) {
   let best = 0, bestLen = 0;
   for (const ring of b.outer) {
@@ -149,7 +149,11 @@ function dominantAngle(b) {
   return Math.abs(a) < 0.05 ? 0 : a;
 }
 
-/** 一栋楼的图块画法：屋顶 = 占地轮廓，墙 = 轮廓向下拉；瓦片网格跟着楼的主轴旋转 */
+/**
+ * 一栋楼：
+ *  - 屋顶 = 占地轮廓（位置不动），瓦片网格按主轴旋转（瓦垄顺屋檐）
+ *  - 墙   = 轮廓在屏幕空间向下拉一段（朝向观察者），窗格按屏幕横竖排
+ */
 export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, groundBand = 2, eaveColor = '#8d3520') {
   const S = cam.scale;
   const bb = b.bbox;
@@ -163,100 +167,76 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, 
   const floors = Math.max(1, Math.min(5, b.fl || 2));
   const wallPx = Math.max(Math.round(px * 1.6), Math.min(Math.round(px * 6), Math.round(px * floors * 1.1)));
 
-  // 轮廓（屏幕坐标）
-  const pts = [];
-  for (const ring of b.outer) for (let i = 0; i < ring.length; i += 2) pts.push([cam.sx(ring[i]), cam.sy(ring[i + 1])]);
-  const cx = (dx0 + dx1) / 2, cy = (dy0 + dy1) / 2;
-
-  // 让瓦片顺着楼的主轴：整体旋转坐标再画
-  const ang = dominantAngle(b);
-  const cos = Math.cos(ang), sin = Math.sin(ang);
-  const toRot = (x, y) => {
-    const ddx = x - cx, ddy = y - cy;
-    return [cx + ddx * cos + ddy * sin, cy - ddx * sin + ddy * cos];
-  };
-
-  // 旋转后的包围盒（用来铺瓦）
-  let rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;
-  for (const [x, y] of pts) {
-    const [u, v] = toRot(x, y);
-    rx0 = Math.min(rx0, u); rx1 = Math.max(rx1, u);
-    ry0 = Math.min(ry0, v); ry1 = Math.max(ry1, v);
-  }
-
-  const mkPath = (dy) => {
+  // 屏幕空间轮廓
+  const screenPath = (dy) => {
     const p2 = new Path2D();
     for (const ring of b.outer) {
-      const [sx0, sy0] = toRot(cam.sx(ring[0]), cam.sy(ring[1]));
-      p2.moveTo(sx0, sy0 + dy);
-      for (let i = 2; i < ring.length; i += 2) {
-        const [sx1, sy1] = toRot(cam.sx(ring[i]), cam.sy(ring[i + 1]));
-        p2.lineTo(sx1, sy1 + dy);
-      }
+      p2.moveTo(cam.sx(ring[0]), cam.sy(ring[1]) + dy);
+      for (let i = 2; i < ring.length; i += 2) p2.lineTo(cam.sx(ring[i]), cam.sy(ring[i + 1]) + dy);
       p2.closePath();
     }
     return p2;
   };
+  const roofPath = screenPath(0);
+  const wallPath = screenPath(wallPx);
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(ang);
-  ctx.translate(-cx, -cy);
-
-  const roofPath = mkPath(0);
-  const wallPath = mkPath(wallPx);
-
-  // 投影（贴墙底）
+  // 投影
   ctx.save();
   ctx.translate(px * 0.18, 0);
   ctx.fillStyle = 'rgba(30,42,30,.16)';
-  ctx.fill(mkPath(wallPx + Math.round(px * 0.25)));
+  ctx.fill(screenPath(wallPx + Math.round(px * 0.25)));
   ctx.restore();
 
-  // 墙：轮廓向下拉一段，铺窗
+  // ---- 墙（屏幕空间，不旋转）----
   ctx.save();
   ctx.clip(wallPath);
   ctx.fillStyle = wallColor;
   ctx.fill(wallPath);
-  const wallW = rx1 - rx0;
   const rows = Math.max(1, Math.round(wallPx / px));
-  const cols = Math.max(1, Math.round(wallW / px));
-  const cw = wallW / cols, chh = wallPx / rows;
+  const cols = Math.max(1, Math.round(w / px));
+  const cw = w / cols, chh = wallPx / rows;
   for (let r = 0; r < rows; r++) {
     for (let i = 0; i < cols; i++) {
       const isGround = r === rows - 1;
       const band = isGround ? (i === Math.floor(cols / 2) ? groundBand : (groundBand === 6 ? 6 : windowBand)) : windowBand;
       drawWallTile(ctx, wallColor, band,
-        Math.round(rx0 + i * cw), Math.round(ry1 + r * chh),
+        Math.round(dx0 + i * cw), Math.round(dy1 + r * chh),
         Math.max(2, Math.round(cw)), (b.id || 1) + r * 7);
     }
   }
-  // 墙脚暗线
   ctx.fillStyle = 'rgba(40,32,24,.30)';
-  ctx.fillRect(rx0 - px, ry1 + wallPx - Math.max(1, px * 0.18), wallW + px * 2, Math.max(1, px * 0.18));
+  ctx.fillRect(dx0 - px, dy1 + wallPx - Math.max(1, px * 0.18), w + px * 2, Math.max(1, px * 0.18));
   ctx.restore();
 
-  // 屋顶：占地轮廓本身，铺瓦
+  // ---- 屋顶：裁到轮廓，瓦片网格按主轴旋转 ----
+  const ang = dominantAngle(b);
+  const cx = (dx0 + dx1) / 2, cy = (dy0 + dy1) / 2;
+  const cos = Math.cos(ang), sin = Math.sin(ang);
+  const toRot = (x, y) => {
+    const ddx = x - cx, ddy = y - cy;
+    return [cx + ddx * cos + ddy * sin, cy - ddx * sin + ddy * cos];
+  };
+  let rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;
+  for (const ring of b.outer) {
+    for (let i = 0; i < ring.length; i += 2) {
+      const [u, v] = toRot(cam.sx(ring[i]), cam.sy(ring[i + 1]));
+      rx0 = Math.min(rx0, u); rx1 = Math.max(rx1, u);
+      ry0 = Math.min(ry0, v); ry1 = Math.max(ry1, v);
+    }
+  }
   ctx.save();
   ctx.clip(roofPath);
+  ctx.translate(cx, cy);
+  ctx.rotate(ang);
+  ctx.translate(-cx, -cy);
   const eaveOut = Math.round(px * 0.35);
   for (let y = ry0 - eaveOut; y < ry1 + px; y += px) {
     for (let x = rx0 - eaveOut; x < rx1 + px; x += px) {
       drawRoofTile(ctx, roofColor, x, y, px, (b.id || 1) + x + y);
     }
   }
-  ctx.restore();
-  // 檐口
-  ctx.save();
-  ctx.strokeStyle = eaveColor;
-  ctx.globalAlpha = 0.75;
-  ctx.lineWidth = Math.max(1, px * 0.16);
-  ctx.stroke(roofPath);
-  ctx.restore();
-  // 正脊（沿长边方向）
-  ctx.save();
-  ctx.clip(roofPath);
-  if (wallW >= ry1 - ry0) {
+  // 正脊（沿长边，仍然在旋转坐标系里）
+  if (rx1 - rx0 >= ry1 - ry0) {
     const ryMid = Math.round((ry0 + ry1) / 2 - px / 2);
     for (let x = rx0; x < rx1; x += px) drawRidgeTile(ctx, roofColor, x, ryMid, px);
   } else {
@@ -265,6 +245,12 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, 
   }
   ctx.restore();
 
+  // 檐口
+  ctx.save();
+  ctx.strokeStyle = eaveColor;
+  ctx.globalAlpha = 0.75;
+  ctx.lineWidth = Math.max(1, px * 0.16);
+  ctx.stroke(roofPath);
   ctx.restore();
 }
 
