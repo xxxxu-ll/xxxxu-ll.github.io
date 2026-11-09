@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091159';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091159';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091202';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091202';
 
 // 静园片区（米）：涵盖静园草坪、三院到六院、哲学楼、燕南食堂
 export const PILOT = { x0: -250, y0: 90, x1: 130, y1: 400 };

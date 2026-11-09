@@ -1,0 +1,9 @@
+素材来源 / Assets
+=================
+assets/cc0/ninja_floor.png、ninja_village.png、ninja_wall.png
+来自 Ninja Adventure Asset Pack（作者 Pixel-Boy / AAA）
+https://github.com/pixel-boy/NinjaAdventure
+许可：CC0 1.0（公共领域，可商用、可修改、无需署名）
+本项目只用到了其中的 16x16 地面瓦片作为图块试点（?tile=1）的地面纹理。
+
+建筑图块（屋顶瓦 / 墙 / 窗 / 树）为本项目程序化绘制，未使用上述素材。

@@ -1,7 +1,7 @@
 // 图块素材：来源于 CC0 公共领域素材包 Ninja Adventure（pixel-boy）
 // https://github.com/pixel-boy/NinjaAdventure  ·  License: CC0-1.0
 // 只取其中 16×16 的地面瓦片；建筑用程序化图块（同一套调色板）
-import { mulberry32 } from './util.js?v=202611091159';
+import { mulberry32 } from './util.js?v=202611091202';
 
 export const TILE = 16;            // 图块像素
 export const TILE_M = 2;           // 一格 = 2 米
