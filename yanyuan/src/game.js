@@ -1,15 +1,16 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090447';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090447';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090447';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090502';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090502';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090502';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611090447';
-import { capturePhoto, savePhoto } from './photo.js?v=202611090447';
-import { MapView, MiniMap } from './minimap.js?v=202611090447';
-import * as ui from './ui.js?v=202611090447';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090447';
+} from './progress.js?v=202611090502';
+import { capturePhoto, savePhoto } from './photo.js?v=202611090502';
+import { MapView, MiniMap } from './minimap.js?v=202611090502';
+import { placeFor } from './places.js?v=202611090502';
+import * as ui from './ui.js?v=202611090502';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090502';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -32,6 +33,13 @@ export class Game {
     this.store.onError = (e, attempts) => {
       if (attempts === 1) ui.toast('存档还没保存上，正在自动重试…', 'warn');
     };
+
+    // 有内容的地标（E 键可查看卡片）
+    this.placeMarks = world.landmarks
+      .filter(l => !l.aliasOf && placeFor(l.name))
+      .map(l => ({ l, place: placeFor(l.name) }));
+    this.followId = null;
+    this.activeQuest = localStorage.getItem('yanyuan.quest') || '';
 
     this.canvas = ui.el.canvas;
     this.ctx = this.canvas.getContext('2d', { alpha: false });
@@ -123,6 +131,13 @@ export class Game {
     // 首次进入视为一次探索
     this.progress.ach.enter = this.progress.ach.enter || Date.now();
     this.checkAchievements();
+
+    // 第一次进来：给三个可选邀请（可直接跳过）
+    if (!this.offline && !this.activeQuest && Object.keys(this.progress.visited).length <= 3) {
+      setTimeout(() => {
+        if (!this.overlayOpen() && !this.chatOpen) this.offerQuests();
+      }, 2200);
+    }
 
     // 本机有未同步的存档就补传一次（只在与当前身份匹配时）
     if (!this.offline) {
@@ -263,7 +278,8 @@ export class Game {
     runBtn.addEventListener('pointerup', () => this.keys.delete('shift'));
     runBtn.addEventListener('pointerleave', () => this.keys.delete('shift'));
 
-    // 画布点击：走路？
+    // 画布点击：点附近玩家看名片
+    this.canvas.addEventListener('pointerup', (e) => this.handleCanvasClick(e));
     this.canvas.addEventListener('dblclick', () => this.takePhoto());
   }
 
@@ -304,6 +320,39 @@ export class Game {
     document.getElementById('mapClose').onclick = () => this.closeMap();
     document.getElementById('journalClose').onclick = () => ui.el.journalOverlay.classList.add('hidden');
     document.getElementById('destClear').onclick = () => { this.waypoint = null; this.refreshMap(); ui.toast('已清除目的地'); };
+
+    // 地点卡片
+    document.getElementById('placeClose').onclick = () => ui.hidePlace();
+    document.getElementById('placeRemember').onclick = () => {
+      const name = document.getElementById('placeOverlay').dataset.name || '';
+      const ok = addItem(this.progress, `观察笔记：${name}`);
+      ui.toast(ok ? `已记入手册：${name}` : '这条已经记过了', ok ? 'good' : '');
+      ui.hidePlace();
+      this.store.touch();
+    };
+    document.getElementById('placePhoto').onclick = () => { ui.hidePlace(); this.takePhoto(); };
+
+    // 玩家名片
+    document.getElementById('pcClose').onclick = () => ui.hidePlayerCard();
+    document.getElementById('pcWave').onclick = async () => {
+      const id = document.getElementById('cardOverlay').dataset.id;
+      if (!id) return;
+      try {
+        await this.api.wave(id);
+        const r = this.remotes.get(id);
+        ui.toast(`向 ${r ? r.name : '对方'} 挥了挥手`, 'good');
+      } catch (e) {
+        ui.toast(e.status === 409 ? '对方已经离线了' : (e.message || '挥手失败'), 'warn');
+      }
+    };
+    document.getElementById('pcFollow').onclick = () => {
+      const id = document.getElementById('cardOverlay').dataset.id;
+      const r = this.remotes.get(id);
+      if (!r) return;
+      this.followId = id;
+      ui.hidePlayerCard();
+      ui.toast(`跟着 ${r.name} 走，屏幕上会持续标出他的位置`, 'good', 3200);
+    };
 
     const chatInput = ui.el.chatInput;
     chatInput.addEventListener('keydown', (e) => {
@@ -458,6 +507,18 @@ export class Game {
     this.nearest = this.findNearest();
     ui.setPrompt(this.nearest ? this.nearest.prompt : '');
 
+    // 跟随某个玩家：目的地实时跟着他
+    if (this.followId) {
+      const r = this.remotes.get(this.followId);
+      if (r) {
+        this.waypoint = { x: r.x, y: r.y, name: '跟着 ' + r.name };
+      } else {
+        this.followId = null;
+        this.waypoint = null;
+        ui.toast('跟丢了，他已经离开', 'warn');
+      }
+    }
+
     // 目的地
     if (this.waypoint) {
       const d = dist(me.x, me.y, this.waypoint.x, this.waypoint.y);
@@ -500,6 +561,15 @@ export class Game {
       }
     }
     if (best) return best;
+    // 有内容的地点：走到可达点附近就能看
+    for (const { l, place } of this.placeMarks) {
+      const d = dist(me.x, me.y, l.ax, l.ay);
+      if (d < 14 && d < bd) {
+        bd = d;
+        best = { type: 'place', landmark: l, place, prompt: `看看「${l.name}」（E）` };
+      }
+    }
+    if (best) return best;
     for (const h of this.world.heritage) {
       const d = dist(me.x, me.y, h.x, h.y);
       if (d < 2.6 && d < bd) { bd = d; best = { type: 'heritage', item: h, prompt: `看看「${h.name}」（E）` }; }
@@ -532,6 +602,7 @@ export class Game {
         const line = c.def.lines[Math.floor(Math.random() * c.def.lines.length)];
         ui.toast(line, '', 3000);
         this.spawnHearts(c);
+        this.completeQuest('pet:any');
         if (next >= AFF.photo && st.a < AFF.photo && !this.progress.items.includes(c.def.gift)) {
           if (addItem(this.progress, c.def.gift)) ui.toast(`${c.name} 留下了一样东西：${c.def.gift}`, 'good', 3200);
         }
@@ -541,6 +612,15 @@ export class Game {
         this.store.touch();
         this.checkAchievements();
       }
+    } else if (this.nearest.type === 'place') {
+      const { landmark, place } = this.nearest;
+      ui.showPlace(place, landmark.name);
+      if (!this.progress.visited[landmark.name]) {
+        this.progress.visited[landmark.name] = Date.now();
+        this.store.touch();
+        this.checkAchievements();
+      }
+      this.completeQuest('visit:' + landmark.name);
     } else if (this.nearest.type === 'heritage') {
       const h = this.nearest.item;
       ui.toast(`「${h.name}」：${h.kind === '景观' ? '校园里的一个地标' : '燕园的一处老地方'}`, '', 3000);
@@ -755,6 +835,12 @@ export class Game {
     const sheet = getCharacterSheet(r.appearance || {});
     const x = this.cam.sx(r.x), y = this.cam.sy(r.y);
     drawCharacter(ctx, sheet, r.dir || 'down', r.frame || 0, x, y, 0.7, { bike: r.mode === 'bike' });
+    if (r.waveUntil && performance.now() < r.waveUntil) {
+      const t = Math.round(Math.sin(performance.now() / 90) * 2);
+      ctx.fillStyle = '#f0c060';
+      ctx.fillRect(Math.round(x + 8), Math.round(y - 24 + t), 3, 3);
+      ctx.fillRect(Math.round(x + 9), Math.round(y - 27 + t), 1, 3);
+    }
     this.tagQueue.push({ text: r.name, x: r.x, y: r.y - 1.85, color: '#d9ecff' });
   }
 
@@ -842,16 +928,25 @@ export class Game {
         alive.add(p.id);
         let r = this.remotes.get(p.id);
         if (!r) {
-          r = { id: p.id, x: p.x, y: p.y, tx: p.x, ty: p.y, dir: p.dir, moving: p.moving, mode: p.mode, name: p.name, appearance: p.appearance, frame: 0, lastSeen: now };
+          r = { id: p.id, x: p.x, y: p.y, tx: p.x, ty: p.y, dir: p.dir, moving: p.moving, mode: p.mode, name: p.name, appearance: p.appearance, profile: p.profile, frame: 0, lastSeen: now };
           this.remotes.set(p.id, r);
         } else {
           r.tx = p.x; r.ty = p.y;
           if (Math.hypot(p.x - r.x, p.y - r.y) > 40) { r.x = p.x; r.y = p.y; }
           r.dir = p.dir; r.moving = p.moving; r.mode = p.mode;
-          r.name = p.name; r.appearance = p.appearance;
+          r.name = p.name; r.appearance = p.appearance; r.profile = p.profile;
           r.lastSeen = now;
         }
       }
+      // 别人向我挥手
+      for (const g of (res.gestures || [])) {
+        if (this.seenGestures && this.seenGestures.has(g.id)) continue;
+        (this.seenGestures || (this.seenGestures = new Set())).add(g.id);
+        ui.toast(`${g.fromName} 向你挥了挥手`, 'good', 3200);
+        const r = this.remotes.get(g.fromId);
+        if (r) r.waveUntil = performance.now() + 1800;
+      }
+
       ui.setOnline(res.online || 1);
       for (const m of res.messages) {
         if (this.seenMessages.has(m.id)) continue;
@@ -1033,6 +1128,112 @@ export class Game {
     ui.el.helpOverlay.classList.remove('hidden');
   }
 
+  // ---------------- 前五分钟：三个邀请 ----------------
+  quests() {
+    const near = this.cats
+      .map(c => ({ c, d: dist(c.x, c.y, this.me.x, this.me.y) }))
+      .sort((a, b) => a.d - b.d)[0];
+    return [
+      {
+        id: 'cat',
+        title: '跟着一只猫认识附近',
+        desc: near ? `最近的是 ${near.c.name}，在 ${Math.round(near.d)} 米外` : '去附近找一只校园猫',
+        run: () => {
+          if (!near) return;
+          this.waypoint = { x: near.c.x, y: near.c.y, name: near.c.name };
+          ui.toast(`已把 ${near.c.name} 的位置标在地图上`, 'good');
+        },
+      },
+      {
+        id: 'lake',
+        title: '去未名湖拍一张照片',
+        desc: '湖在校园北侧，走到湖边按 P 拍照',
+        run: () => {
+          const lake = this.world.landmarks.find(l => l.name === '未名湖' && !l.aliasOf);
+          if (lake) { this.waypoint = this.world.waypointFor(lake); ui.toast('已标记未名湖', 'good'); }
+        },
+      },
+      {
+        id: 'route',
+        title: '走一段燕园经典路线',
+        desc: '西门 → 办公楼 → 未名湖 → 博雅塔，先去博雅塔',
+        run: () => {
+          const tower = this.world.landmarks.find(l => l.name === '博雅塔' && !l.aliasOf);
+          if (tower) { this.waypoint = this.world.waypointFor(tower); ui.toast('已标记博雅塔', 'good'); }
+        },
+      },
+    ];
+  }
+
+  offerQuests() {
+    const items = this.quests();
+    ui.showInvites(items, (it) => {
+      this.activeQuest = it.id;
+      try { localStorage.setItem('yanyuan.quest', it.id); } catch { /* ignore */ }
+      it.run();
+      ui.toast('完成它会得到一枚印章', 'good', 3000);
+    }, () => {
+      ui.toast('随意逛逛也很好，需要时按 M 看地图', '', 3000);
+    });
+  }
+
+  completeQuest(tag) {
+    const q = this.activeQuest;
+    if (!q) return;
+    const hit =
+      (q === 'cat' && tag === 'pet:any') ||
+      (q === 'lake' && tag === 'photo:lake') ||
+      (q === 'route' && tag === 'visit:博雅塔');
+    if (!hit) return;
+    const stamps = {
+      cat: '燕园印章 · 猫缘',
+      lake: '燕园印章 · 湖光',
+      route: '燕园印章 · 塔影',
+    };
+    this.activeQuest = '';
+    try { localStorage.removeItem('yanyuan.quest'); } catch { /* ignore */ }
+    addItem(this.progress, stamps[q]);
+    this.progress.ach['quest_' + q] = Date.now();
+    ui.toast(`第一枚印章：${stamps[q]}`, 'good', 4200);
+    this.store.touch();
+    this.checkAchievements();
+  }
+
+  // ---------------- 玩家名片 ----------------
+  handleCanvasClick(e) {
+    if (this.photoBusy || this.chatOpen) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const lx = ((e.clientX - rect.left) / rect.width) * this.low.width;
+    const ly = ((e.clientY - rect.top) / rect.height) * this.low.height;
+    const wx = this.cam.wx(lx), wy = this.cam.wy(ly);
+    let best = null, bd = 2.6;
+    for (const r of this.remotes.values()) {
+      const d = Math.hypot(r.x - wx, r.y - wy);
+      if (d < bd) { bd = d; best = r; }
+    }
+    if (best) this.openPlayerCard(best);
+  }
+
+  openPlayerCard(r) {
+    const prof = r.profile || {};
+    ui.showPlayerCard({
+      id: r.id, name: r.name,
+      dept: prof.dept, grade: prof.grade, bio: prof.bio,
+      dist: dist(this.me.x, this.me.y, r.x, r.y),
+    });
+    // 头像
+    const c = document.getElementById('pcAvatar');
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    const grd = ctx.createLinearGradient(0, 0, 0, c.height);
+    grd.addColorStop(0, '#dff0c8'); grd.addColorStop(1, '#b9d99a');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, c.width, c.height);
+    const sheet = getCharacterSheet(r.appearance || {});
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(sheet, 0, 0, 16, 24, 16, 26, 64, 96);
+  }
+
   // ---------------- 拍照 ----------------
   async takePhoto() {
     if (this.photoBusy) return;
@@ -1059,6 +1260,8 @@ export class Game {
       this.progress.stats.photos = (this.progress.stats.photos || 0) + 1;
       this.store.touch();
       this.checkAchievements();
+      const lake = this.world.landmarks.find(l => l.name === '未名湖' && !l.aliasOf);
+      if (lake && dist(this.me.x, this.me.y, lake.ax, lake.ay) < 90) this.completeQuest('photo:lake');
     } catch (e) {
       ui.toast('拍照失败：' + (e.message || '未知错误'), 'bad');
     } finally {

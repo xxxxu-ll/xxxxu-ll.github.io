@@ -1,6 +1,6 @@
 // 世界服务客户端：身份、同步、聊天、存档
 // 后端地址：本地开发走同源 /api；线上由 src/api-base.js 注入 Cloudflare Worker 地址。
-import { API_BASE } from './api-base.js?v=202611090447';
+import { API_BASE } from './api-base.js?v=202611090502';
 
 export const DEFAULT_API = 'https://yanyuan-world.yanyuan.workers.dev/api';
 
@@ -91,6 +91,8 @@ export class Api {
   }
 
   chat(text) { return this._fetch('/chat', { body: { text } }); }
+
+  wave(to) { return this._fetch('/wave', { body: { to } }); }
 
   saveProgress(progress) { return this._fetch('/progress', { body: { progress } }); }
 

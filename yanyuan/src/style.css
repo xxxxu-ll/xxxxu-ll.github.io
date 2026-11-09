@@ -336,6 +336,51 @@ code { background: var(--paper-2); padding: 1px 5px; border-radius: 4px; font-si
 /* 恢复码弹窗必须盖在创建角色页之上（.screen 是 z-index 40） */
 #codeOverlay { z-index: 85; }
 
+/* 地点卡片 */
+.place-card { width: min(560px, 94vw); }
+.place-body { padding: 16px 22px 20px; }
+.place-story { font-size: 14.5px; line-height: 1.75; margin: 0 0 14px; }
+.place-detail {
+  background: var(--paper-2); border-left: 3px solid var(--gold); border-radius: 0 8px 8px 0;
+  padding: 10px 14px; margin-bottom: 16px;
+}
+.place-detail p { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-soft); }
+.place-label { font-size: 11px; letter-spacing: .2em; color: #9a7b3a; font-weight: 700; }
+.place-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.place-note { margin: 14px 0 0; }
+
+/* 前五分钟邀请 */
+.invite-card {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: max(64px, calc(env(safe-area-inset-top) + 56px));
+  width: min(430px, 92vw); background: rgba(253,250,243,.98);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  padding: 12px 14px; z-index: 25;
+}
+.invite-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.invite-head b { font-size: 13.5px; }
+.ghostbtn.tiny { padding: 3px 9px; font-size: 11.5px; }
+.invite-list { display: flex; flex-direction: column; gap: 6px; }
+.invite-item {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 8px 11px;
+  font-family: inherit;
+}
+.invite-item:hover { background: var(--paper-2); }
+.invite-item b { font-size: 13px; }
+.invite-item span { font-size: 11.5px; color: var(--ink-soft); }
+
+/* 玩家名片 */
+.player-card { width: min(460px, 94vw); }
+.pc-body { display: flex; gap: 16px; padding: 16px 20px 20px; }
+#pcAvatar {
+  width: 96px; height: 132px; flex: none; border-radius: 10px; border: 1px solid var(--line);
+  background: linear-gradient(#dff0c8, #b9d99a); image-rendering: pixelated;
+}
+.pc-info { flex: 1; min-width: 0; }
+.pc-info p { margin: 0 0 8px; font-size: 13.5px; }
+.pc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; }
+
 /* 致命错误提示 */
 .fatal {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
