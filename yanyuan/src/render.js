@@ -1026,8 +1026,26 @@ export function drawBuilding(ctx, b, cam, hour) {
   ctx.save();
   at(0, 0);
   // 墙体形状 = 占地轮廓的底部一条带（不会伸出建筑外）
+  // 墙裙：沿每条朝南的边向下拉 wallH，贴着真实轮廓
+  const skirt = new Path2D();
+  for (const ring of b.outer) {
+    const n2 = ring.length;
+    for (let i = 0; i < n2; i += 2) {
+      const j = (i + 2) % n2;
+      const x1 = ring[i], y1 = ring[i + 1], x2 = ring[j], y2 = ring[j + 1];
+      if (y2 - y1 <= 0.01) continue;          // 只拉朝南的边
+      skirt.moveTo(x1, y1);
+      skirt.lineTo(x2, y2);
+      skirt.lineTo(x2, y2 + wallH);
+      skirt.lineTo(x1, y1 + wallH);
+      skirt.closePath();
+    }
+  }
   ctx.fillStyle = wall;
-  ctx.fillRect(wallX0, wallTop, wallW, wallH);
+  ctx.fill(skirt);
+  ctx.strokeStyle = 'rgba(60,44,30,.35)';
+  ctx.lineWidth = 0.4;
+  ctx.stroke(skirt);
   // 立面底色：左右各压一点，读作转角
   ctx.fillStyle = 'rgba(60,44,30,.10)';
   ctx.fillRect(wallX0, wallTop, Math.min(1.2, wallW * 0.04), wallH);
@@ -1044,9 +1062,7 @@ export function drawBuilding(ctx, b, cam, hour) {
   // ---- 立面细节（全部在矩形里排版，不会歪）----
   ctx.save();
   at(0, 0);
-  ctx.beginPath();
-  ctx.rect(wallX0, wallTop, wallW, wallH);
-  ctx.clip();
+  ctx.clip(skirt);
   const eaveM = Math.min(0.9, wallH * 0.13);
   const floorsF = clamp(Math.round(wallH / 3.4), 1, 5);
   const floorH = (wallH - eaveM) / floorsF;
