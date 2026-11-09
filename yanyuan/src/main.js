@@ -1,14 +1,14 @@
 // 启动流程：加载地图 → 连接世界 → 创建角色 / 恢复存档 → 进入游戏
-import { loadMap } from './mapdata.js?v=202611090807';
-import { buildMapLayers } from './minimap.js?v=202611090807';
-import { Api, retry, ApiError } from './net.js?v=202611090807';
-import { Game } from './game.js?v=202611090807';
-import * as ui from './ui.js?v=202611090807';
+import { loadMap } from './mapdata.js?v=202611090823';
+import { buildMapLayers } from './minimap.js?v=202611090823';
+import { Api, retry, ApiError } from './net.js?v=202611090823';
+import { Game } from './game.js?v=202611090823';
+import * as ui from './ui.js?v=202611090823';
 import {
   SKINS, HAIRS, TOPS, PANTS, SHOES, HAIR_STYLES, ACCESSORIES, buildCharacterSheet,
-} from './sprites.js?v=202611090807';
-import { normalizeRecovery } from './util.js?v=202611090807';
-import { toast } from './ui.js?v=202611090807';
+} from './sprites.js?v=202611090823';
+import { normalizeRecovery } from './util.js?v=202611090823';
+import { toast } from './ui.js?v=202611090823';
 
 const $ = (id) => document.getElementById(id);
 

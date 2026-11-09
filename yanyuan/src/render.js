@@ -1,6 +1,7 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090807';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090823';
+import { heritageType } from './heritage.js?v=202611090823';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -1334,6 +1335,135 @@ export function drawTree(ctx, t, cam) {
     pixelDisc(ctx, x - Math.round(r * 0.26), y - Math.round(6.4 * s), Math.round(r * 0.66), tone[0]);
     ctx.fillStyle = tone[1];
     ctx.fillRect(x - Math.round(r * 0.34), y - Math.round(8.6 * s), Math.max(1, Math.round(r * 0.4)), 1);
+  }
+}
+// ---------------- 石碑 / 石像 / 华表 / 石刻 ----------------
+const STONE = '#d6d1c4';
+const STONE_DARK = '#a9a396';
+const STONE_EDGE = 'rgba(32,36,32,.62)';
+const BRONZE = '#7d6b4c';
+const BRONZE_DARK = '#5b4c34';
+
+export function drawHeritage(ctx, h, cam) {
+  const S = cam.scale;
+  const x = Math.round(cam.sx(h.x));
+  const y = Math.round(cam.sy(h.y));
+  const u = Math.max(1, Math.round(S * 0.5));      // 半米
+  const t = heritageType(h.name);
+  const box = (dx, dy, w, hh, color) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + dx, y + dy, w, hh);
+  };
+  const outline = (dx, dy, w, hh) => {
+    ctx.strokeStyle = STONE_EDGE;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + dx + 0.5, y + dy + 0.5, w - 1, hh - 1);
+  };
+
+  // 投影
+  ctx.fillStyle = 'rgba(32,44,30,.22)';
+  ctx.fillRect(x - u * 2 + 1, y + 1, u * 4, 1);
+
+  if (t === 'column') {
+    box(-u * 2, -u * 2, u * 4, u * 2, STONE_DARK);       // 台基
+    outline(-u * 2, -u * 2, u * 4, u * 2);
+    const sw = Math.max(3, Math.round(u * 1.5));         // 柱身
+    box(-Math.round(sw / 2), -u * 20, sw, u * 18, STONE);
+    ctx.strokeStyle = STONE_EDGE;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - Math.round(sw / 2) + 0.5, y - u * 20 + 0.5, sw - 1, u * 18 - 1);
+    box(-u * 3, -u * 17, u * 6, Math.max(2, u), STONE_DARK);  // 云板
+    box(-u, -u * 22, u * 2, u * 2, STONE);               // 承露盘
+    ctx.fillStyle = 'rgba(255,252,240,.5)';
+    ctx.fillRect(x - Math.round(sw / 2) + 1, y - u * 20, Math.max(1, Math.round(u * 0.4)), u * 18);
+  } else if (t === 'statue') {
+    box(-u * 3.5, -u * 3, u * 7, u * 3, STONE_DARK);     // 基座
+    outline(-u * 3.5, -u * 3, u * 7, u * 3);
+    box(-u * 1.5, -u * 9, u * 3, u * 6, BRONZE);         // 身体
+    box(-u, -u * 12, u * 2, u * 3, BRONZE);              // 头+肩
+    box(-u * 1.5, -u * 8, Math.max(1, Math.round(u * 0.7)), u * 4, BRONZE_DARK);
+    ctx.fillStyle = 'rgba(255,240,200,.28)';
+    ctx.fillRect(x - u + 1, y - u * 11, 1, u * 7);
+  } else if (t === 'bell') {
+    box(-u * 2, -u * 1, u * 4, u, STONE_DARK);
+    box(-u, -u * 6, u * 2, u * 5, '#8a6a3a');
+    box(-u * 2, -u * 7, u * 4, Math.max(1, u * 0.6), '#9a7742');
+    box(-u, -u * 1, u * 2, Math.max(1, u * 0.5), '#6d5227');
+  } else if (t === 'belltower') {
+    box(-u * 3, -u * 2, u * 6, u * 2, STONE_DARK);
+    box(-u * 3, -u * 8, u, u * 6, '#8d3520');            // 柱
+    box(u * 2, -u * 8, u, u * 6, '#8d3520');
+    box(-u * 4, -u * 10, u * 8, u * 2, '#8a6a3a');       // 亭顶
+    box(-u * 5, -u * 10, u * 10, Math.max(1, u * 0.6), '#6d5227');
+    box(-u, -u * 8, u * 2, u * 3, '#a8873f');            // 钟
+  } else if (t === 'fish') {
+    box(-u * 3, -u, u * 5, u * 2, STONE);
+    box(u * 2, -u * 2, u * 2, u * 2, STONE_DARK);        // 翻尾
+    box(-u * 4, -u, u, Math.max(1, u), STONE_DARK);      // 头
+    outline(-u * 3, -u, u * 5, u * 2);
+  } else if (t === 'offering') {
+    for (let i = -2; i <= 2; i++) {
+      const hh = u * (i === 0 ? 3 : 2);
+      box(i * u * 2 - u * 0.5, -hh, u, hh, i === 0 ? STONE : STONE_DARK);
+      outline(i * u * 2 - u * 0.5, -hh, u, hh);
+    }
+  } else if (t === 'tomb') {
+    ctx.fillStyle = '#4f8a3c';
+    ctx.fillRect(x - u * 5, y - u * 3, u * 10, u * 3);
+    ctx.fillStyle = 'rgba(40,80,30,.35)';
+    ctx.fillRect(x - u * 5, y - 1, u * 10, 1);
+    box(-u * 2, -u * 11, u * 4, u * 8, STONE);
+    box(-u * 3, -u * 3, u * 6, u, STONE_DARK);
+    outline(-u * 2, -u * 11, u * 4, u * 8);
+    outline(-u * 3, -u * 3, u * 6, u);
+    ctx.fillStyle = 'rgba(60,58,48,.45)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(x - 1, y - u * 10 + i * u * 2.2, 2, Math.max(1, u * 0.8));
+  } else if (t === 'gate') {
+    box(-u * 3, -u * 2, u * 6, u * 2, STONE_DARK);
+    box(-u * 3, -u * 8, u, u * 6, '#8d3520');
+    box(u * 2, -u * 8, u, u * 6, '#8d3520');
+    box(-u * 4, -u * 10, u * 8, u * 2, '#5d6a78');
+    box(-u * 5, -u * 10, u * 10, Math.max(1, u * 0.6), '#404b57');
+  } else if (t === 'screen') {
+    box(-u * 3, -u * 5, u * 6, u * 4, STONE);
+    box(-u * 4, -u * 2, u * 8, u * 2, STONE_DARK);
+    outline(-u * 3, -u * 5, u * 6, u * 4);
+    ctx.fillStyle = 'rgba(90,86,70,.45)';
+    ctx.fillRect(x - u * 2, y - u * 4, u * 4, 1);
+    ctx.fillRect(x - u * 2, y - u * 3, u * 2, 1);
+  } else if (t === 'trough') {
+    box(-u * 4, -u * 2, u * 8, u * 2, STONE);
+    ctx.fillStyle = STONE_DARK;
+    ctx.fillRect(x - u * 3, y - u * 1.6, u * 6, Math.max(1, u * 0.5));
+    outline(-u * 4, -u * 2, u * 8, u * 2);
+  } else if (t === 'fragment') {
+    box(-u * 3, -u * 2, u * 2, u * 2, STONE);
+    box(0, -u * 3, u * 2, u * 3, STONE_DARK);
+    box(u * 2, -u, u * 2, u, STONE);
+    outline(-u * 3, -u * 2, u * 2, u * 2);
+  } else if (t === 'plank') {
+    box(-u * 4, -u * 2, u * 8, u * 2, '#c6c1b1');
+    box(-u * 4, -u * 2, u * 8, 1, '#e6e1d0');
+    ctx.fillStyle = 'rgba(90,86,70,.5)';
+    for (let i = -3; i < 4; i += 2) ctx.fillRect(x + i * u, y - u * 2, 1, u * 2);
+  } else if (t === 'star') {
+    box(-u * 2, -u * 3, u * 4, u * 3, STONE_DARK);
+    box(-u * 1.5, -u * 2.8, u * 3, u * 2.2, STONE);
+    ctx.fillStyle = '#e8d58a';
+    ctx.fillRect(x - 1, y - u * 2, 2, 2);
+  } else if (t === 'stone') {
+    box(-u * 2, -u * 2, u * 4, u * 2, STONE);
+    box(-u * 2, -u * 3, u * 3, u, STONE);
+    outline(-u * 2, -u * 2, u * 4, u * 2);
+  } else {
+    // 石碑：台座 + 碑身 + 碑首
+    box(-u * 2.5, -u, u * 5, u, STONE_DARK);
+    outline(-u * 2.5, -u, u * 5, u);
+    box(-u * 2, -u * 8, u * 4, u * 7, STONE);
+    box(-u * 1.5, -u * 9, u * 3, u, STONE);
+    outline(-u * 2, -u * 8, u * 4, u * 7);
+    ctx.fillStyle = 'rgba(92,88,72,.55)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(x - 1, y - u * 7 + i * u * 1.6, 2, Math.max(1, u * 0.7));
   }
 }
 // ---------------- 水面动效 ----------------
