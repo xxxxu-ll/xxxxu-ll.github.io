@@ -1,7 +1,7 @@
 // 图块素材：来源于 CC0 公共领域素材包 Ninja Adventure（pixel-boy）
 // https://github.com/pixel-boy/NinjaAdventure  ·  License: CC0-1.0
 // 只取其中 16×16 的地面瓦片；建筑用程序化图块（同一套调色板）
-import { mulberry32 } from './util.js?v=202611091229';
+import { mulberry32 } from './util.js?v=202611091238';
 
 export const TILE = 16;            // 图块像素
 export const TILE_M = 2;           // 一格 = 2 米
@@ -50,11 +50,9 @@ export function drawPavingTile(ctx, dx, dy, px = TILE) {
       }
     }
   }
-  ctx.fillStyle = 'rgba(120,124,114,.45)';
+  ctx.fillStyle = 'rgba(120,124,114,.28)';
   ctx.fillRect(dx, dy + half - 1, px, 1);
   ctx.fillRect(dx + half - 1, dy, 1, half);
-  ctx.fillRect(dx, dy, px, 1);
-  ctx.fillRect(dx, dy, 1, px);
 }
 
 /** 画一格地面瓦片（素材未就绪时用程序化兜底） */
