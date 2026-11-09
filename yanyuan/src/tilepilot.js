@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091249';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091249';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091300';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091300';
 
 // 全图图块（阶段 3：静园试点定稿后铺满全校）
 export const TILE_WHOLE_MAP = true;
@@ -97,10 +97,10 @@ export function drawPilotGround(ctx, cam) {
       const dy = Math.round(cam.sy(y0 + cy * TILE_M));
       if (dx > cam.w || dy > cam.h || dx + px < 0 || dy + px < 0) continue;
       const pxl = px + 1;   // 多铺 1px，消除取整造成的接缝
-      if (!drawGroundTile(ctx, kind, dx, dy, pxl)) {
-        ctx.fillStyle = kind === 'water' ? '#3aa5d6' : kind === 'path' ? '#b9bdb0' : '#57a03c';
-        ctx.fillRect(dx, dy, pxl, pxl);
-      }
+      // 先铺底色：素材瓦片若含透明像素，也不会露出上一帧的内容
+      ctx.fillStyle = kind === 'water' ? '#3aa5d6' : kind === 'path' ? '#b9bdb0' : '#57a03c';
+      ctx.fillRect(dx, dy, pxl, pxl);
+      drawGroundTile(ctx, kind, dx, dy, pxl);
       if (kind === 'water') {
         // 水岸：临草的一侧补浅色岸石，弱化阶梯感
         const nbW = (dcx, dcy) => {
@@ -132,98 +132,97 @@ export function drawPilotGround(ctx, cam) {
   }
 }
 
-/** 一栋楼的图块画法：屋顶瓦片 + 屋脊 + 南侧墙 */
+/** 一栋楼的图块画法：屋顶 = 占地轮廓（不偏移），墙 = 轮廓向下拉（朝向观察者） */
 export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, groundBand = 2, eaveColor = '#8d3520') {
   const S = cam.scale;
   const bb = b.bbox;
-  const px = Math.max(2, Math.round(TILE_M * S));   // 一格屏幕像素
+  const px = Math.max(2, Math.round(TILE_M * S));
   const dx0 = Math.round(cam.sx(bb[0])), dy0 = Math.round(cam.sy(bb[1]));
   const dx1 = Math.round(cam.sx(bb[2])), dy1 = Math.round(cam.sy(bb[3]));
   const w = dx1 - dx0, h = dy1 - dy0;
   if (w < 2 || h < 2) return;
-  if (dx1 < 0 || dy1 < 0 || dx0 > cam.w || dy0 > cam.h) return;
+  if (dx1 < -px * 8 || dy1 < -px * 8 || dx0 > cam.w + px * 8 || dy0 > cam.h + px * 8) return;
 
-  // 投影
-  ctx.fillStyle = 'rgba(30,42,30,.18)';
-  ctx.fillRect(dx0 + px * 0.35, dy1 - px * 0.4, w, px * 0.9);
-
-  // 墙体：南侧一条，高度按层数（每层一格）
-  // 墙高 = max(层数×1格, 进深的 46%)，让正面站得住
-  const depth = dy1 - dy0;
+  // 墙高：层数优先，但不低于 2 格
   const floors = Math.max(1, Math.min(5, b.fl || 2));
-  const wallPx = Math.max(px * 1.4, Math.min(px * 7, Math.round(Math.max(px * floors, depth * 0.44))));
-  const roofTop = dy0 - wallPx;              // 屋顶整体上移，盖在墙顶
-  const roofBot = dy1 - wallPx;
+  const wallPx = Math.max(Math.round(px * 1.6), Math.min(Math.round(px * 6), Math.round(px * floors * 1.1)));
 
-  // 真实轮廓（世界坐标 -> 屏幕），墙和屋顶都裁到它
-  const outline = new Path2D();
-  for (const ring of b.outer) {
-    outline.moveTo(cam.sx(ring[0]), cam.sy(ring[1]) - wallPx);
-    for (let i = 2; i < ring.length; i += 2) outline.lineTo(cam.sx(ring[i]), cam.sy(ring[i + 1]) - wallPx);
-    outline.closePath();
-  }
-  // 先铺墙（从屋顶下沿到地基）
+  // 轮廓（屏幕坐标）：屋顶用原位置，墙用原点向下拉 wallPx
+  const mkPath = (dy) => {
+    const p2 = new Path2D();
+    for (const ring of b.outer) {
+      p2.moveTo(cam.sx(ring[0]), cam.sy(ring[1]) + dy);
+      for (let i = 2; i < ring.length; i += 2) p2.lineTo(cam.sx(ring[i]), cam.sy(ring[i + 1]) + dy);
+      p2.closePath();
+    }
+    return p2;
+  };
+  const roofPath = mkPath(0);
+  const wallPath = mkPath(wallPx);
+
+  // 地面投影（贴着墙底）
+  ctx.save();
+  ctx.translate(px * 0.18, 0);
+  ctx.fillStyle = 'rgba(30,42,30,.16)';
+  ctx.fill(mkPath(wallPx + Math.round(px * 0.25)));
+  ctx.restore();
+
+  // 墙：裁到"下移后的轮廓"，按格铺窗
+  ctx.save();
+  ctx.clip(wallPath);
   ctx.fillStyle = wallColor;
-  ctx.fillRect(dx0, roofBot, w, wallPx);
+  ctx.fill(wallPath);
   const rows = Math.max(1, Math.round(wallPx / px));
   const cols = Math.max(1, Math.round(w / px));
   const cw = w / cols, chh = wallPx / rows;
+  const wallTopY = dy1;   // 墙带从轮廓底边往下
   for (let r = 0; r < rows; r++) {
     for (let i = 0; i < cols; i++) {
       const isGround = r === rows - 1;
       const band = isGround ? (i === Math.floor(cols / 2) ? groundBand : (groundBand === 6 ? 6 : windowBand))
-        : (r === 0 && rows > 1 ? 0 : windowBand);
+        : windowBand;
       drawWallTile(ctx, wallColor, band,
-        Math.round(dx0 + i * cw), Math.round(roofBot + r * chh),
+        Math.round(dx0 + i * cw), Math.round(wallTopY + r * chh),
         Math.max(2, Math.round(cw)), (b.id || 1) + r * 7);
     }
   }
-  // 勒脚
-  ctx.fillStyle = 'rgba(50,42,32,.28)';
-  ctx.fillRect(dx0, dy1 - Math.max(1, px * 0.16), w, Math.max(1, px * 0.16));
+  ctx.restore();
+  // 墙脚暗线
+  ctx.save();
+  ctx.clip(wallPath);
+  ctx.fillStyle = 'rgba(40,32,24,.30)';
+  ctx.fillRect(dx0 - px, dy1 + wallPx - Math.max(1, px * 0.18), w + px * 2, Math.max(1, px * 0.18));
+  ctx.restore();
 
-  // 屋顶：裁到真实轮廓后铺瓦
+  // 屋顶：占地轮廓本身（不偏移，不会被拉歪）
   ctx.save();
-  ctx.clip(outline);
-  const eaveOut = Math.round(px * 0.5);
-  const rx0 = dx0 - eaveOut, rx1 = dx1 + eaveOut;
-  const rTop = roofTop - Math.round(px * 0.25);
-  ctx.save();
-  ctx.clip(outline);
-  for (let y = rTop; y < roofBot + px; y += px) {
-    for (let x = rx0; x < rx1; x += px) {
+  ctx.clip(roofPath);
+  const eaveOut = Math.round(px * 0.35);
+  for (let y = dy0 - eaveOut; y < dy1 + px; y += px) {
+    for (let x = dx0 - eaveOut; x < dx1 + px; x += px) {
       drawRoofTile(ctx, roofColor, x, y, px, (b.id || 1) + x + y);
     }
   }
   ctx.restore();
-  // 檐圈（外侧压深）+ 顶边高光
+  // 檐口：沿轮廓压一圈深色（用轮廓描边，不画矩形框）
   ctx.save();
   ctx.strokeStyle = eaveColor;
-  ctx.globalAlpha = 0.7;
-  ctx.lineWidth = Math.max(1, px * 0.18);
-  ctx.stroke(outline);
+  ctx.globalAlpha = 0.75;
+  ctx.lineWidth = Math.max(1, px * 0.16);
+  ctx.stroke(roofPath);
   ctx.restore();
-  ctx.fillStyle = 'rgba(255,246,226,.30)';
-  ctx.fillRect(rx0, rTop, rx1 - rx0, Math.max(1, px * 0.1));
-  // 檐口（屋顶最低一排压暗）
-  ctx.fillStyle = eaveColor;
-  ctx.fillRect(dx0, roofBot - Math.max(1, px * 0.22), w, Math.max(1, px * 0.22));
-  ctx.restore();
-
   // 正脊
-  const horiz = w >= depth;
   ctx.save();
-  ctx.clip(outline);
+  ctx.clip(roofPath);
+  const horiz = w >= h;
   if (horiz) {
-    const ry = Math.round(rTop + depth / 2 - px / 2);
-    for (let x = rx0; x < rx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
+    const ry = Math.round(dy0 + h / 2 - px / 2);
+    for (let x = dx0; x < dx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
   } else {
-    const rxc = Math.round(dx0 + w / 2 - px / 2);
-    for (let y = rTop; y < roofBot + px; y += px) drawRidgeTile(ctx, roofColor, rxc, y, px);
+    const rx = Math.round(dx0 + w / 2 - px / 2);
+    for (let y = dy0; y < dy1; y += px) drawRidgeTile(ctx, roofColor, rx, y, px);
   }
   ctx.restore();
-
-  // 外描边
 }
 
 /** 树：用图块画一棵（按 16px 网格） */
