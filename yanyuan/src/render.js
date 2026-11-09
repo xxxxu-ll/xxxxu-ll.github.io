@@ -1,7 +1,7 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090847';
-import { heritageType } from './heritage.js?v=202611090847';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090903';
+import { heritageType } from './heritage.js?v=202611090903';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -876,7 +876,8 @@ export function prepareBuilding(b) {
   b._path = path;
   b._style = buildingStyle(b);
   // 视觉高度（低分辨率像素）
-  b._hpx = clamp(Math.round(Math.sqrt(Math.max(3, b.h)) * 8.6), 14, 56);
+  const flN = Number(b.fl) || Math.max(1, Math.round(Math.sqrt(Math.max(3, b.h)) / 3.2));
+  b._hpx = clamp(Math.round(Math.max(flN, Math.sqrt(Math.max(3, b.h)) / 2.2) * 7.5), 14, 64);
   return b;
 }
 
@@ -974,21 +975,34 @@ export function drawBuilding(ctx, b, cam, hour) {
   const flat = variant === 'flat' || variant === 'tower';
   const classic = variant === 'classic';
 
-  // 硬投影
+  // ---- 2.5D：体积方向 (0.34h, 0.96h) —— 先投影、再东侧墙、再南立面 ----
+  const hx = Math.round(hpx * 0.16);
+  const hy = Math.round(hpx * 0.92);
   ctx.save();
-  at(hpx * 0.12 + 2.2, hpx * 0.30 + 2.4);
-  ctx.fillStyle = 'rgba(30,42,30,.22)';
+  at(hx * 1.7 + 2, hy * 1.2 + 2);
+  ctx.fillStyle = 'rgba(30,42,30,.13)';
+  ctx.fill(b._path);
+  ctx.restore();
+  ctx.save();
+  at(hx * 1.02 + 1, hy * 0.72 + 1);
+  ctx.fillStyle = 'rgba(30,42,30,.17)';
+  ctx.fill(b._path);
+  ctx.restore();
+  // 东侧墙：压暗一档，出厚度
+  ctx.save();
+  at(hx, hy);
+  ctx.fillStyle = mixHex(wall, '#4a3a28', 0.22);
   ctx.fill(b._path);
   ctx.restore();
 
-  // ---------------- 立面 ----------------
+  // ---------------- 南立面 ----------------
   ctx.save();
-  at(0, hpx);
+  at(0, hy);
   ctx.fillStyle = wall;
   ctx.fill(b._path);
   ctx.save();
   ctx.clip(b._path);
-  const wallH = hpx / S;
+  const wallH = hy / S;
   const wallTop = bb[3] - wallH;
   const eaveM = Math.min(0.9, wallH * 0.14);
   ctx.fillStyle = 'rgba(48,40,30,.34)';
@@ -1127,14 +1141,17 @@ export function drawBuilding(ctx, b, cam, hour) {
   ctx.stroke(b._path);
 
   const horiz = w >= h;
-  // 三阶梯色：檐口一圈亮、里圈中、再往内暗，读出坡度
+  // 檐口亮边
   ctx.strokeStyle = mixHex(roof, '#fff6e6', 0.18);
   ctx.lineWidth = 0.8;
   ctx.stroke(b._path);
-  if (w > 12 && h > 8) {
-    ctx.strokeStyle = 'rgba(255,246,230,.16)';
-    ctx.lineWidth = 4;
-    ctx.stroke(b._path);
+  // 坡度：北高南低，三段硬边色阶（保持像素感，不做高斯渐变）
+  if (!flat) {
+    const s1 = bb[1] + h * 0.38, s2 = bb[1] + h * 0.66;
+    ctx.fillStyle = 'rgba(255,246,226,.13)';
+    ctx.fillRect(bb[0], bb[1], w, Math.max(0.6, s1 - bb[1]));
+    ctx.fillStyle = 'rgba(40,22,12,.10)';
+    ctx.fillRect(bb[0], s2, w, Math.max(0.6, bb[3] - s2));
   }
   const midX = (bb[0] + bb[2]) / 2, midY = (bb[1] + bb[3]) / 2;
 
