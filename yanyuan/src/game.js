@@ -1,16 +1,16 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090529';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090529';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090529';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090557';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090557';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090557';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611090529';
-import { capturePhoto, savePhoto } from './photo.js?v=202611090529';
-import { MapView, MiniMap } from './minimap.js?v=202611090529';
-import { placeFor } from './places.js?v=202611090529';
-import * as ui from './ui.js?v=202611090529';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090529';
+} from './progress.js?v=202611090557';
+import { capturePhoto, savePhoto } from './photo.js?v=202611090557';
+import { MapView, MiniMap } from './minimap.js?v=202611090557';
+import { placeFor } from './places.js?v=202611090557';
+import * as ui from './ui.js?v=202611090557';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090557';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -754,14 +754,7 @@ export class Game {
   py(y) { return this.cam.sy(y) * this.lowFactor; }
 
   heroKind(b) {
-    if (b._hero !== undefined) return b._hero;
-    let k = null;
-    if (b.name === '博雅塔') k = 'boya';
-    else if (b.name === '北京大学图书馆') k = 'library';
-    else if (b.name === '百周年纪念讲堂') k = 'podium';
-    else if (b.name === '北大西门' || (b.cat === '校门' && /西门/.test(b.name))) k = 'westgate';
-    b._hero = k;
-    return k;
+    return b.hero || null;
   }
 
   flushText(ctx) {

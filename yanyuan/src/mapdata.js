@@ -1,7 +1,17 @@
 // 地图数据装载与索引：碰撞、空间网格、树木生成、地标检索
-import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090529';
+import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090557';
 
 export const PPM = 8; // 每米像素数（世界渲染基准）
+
+// 需要专属造型的地标
+export const HERO_BY_NAME = {
+  '博雅塔': 'boya',
+  '北京大学图书馆': 'library',
+  '百周年纪念讲堂': 'podium',
+  '北大西门': 'westgate',
+};
+// 用立面绘制的高结构：不铺地面铺装，避免地面上留一个空框
+export const BILLBOARD_HEROES = new Set(['boya', 'westgate']);
 
 export class World {
   constructor(raw) {
@@ -27,6 +37,7 @@ export class World {
         id: b.id, name: b.name, cat: b.cat, h: b.h, fl: b.fl, roof: b.roof, style: b.style,
         label: [b.label[0] * S, b.label[1] * S], polys, outer, bbox, area,
         alias: b.alias || [], heritage: !!b.heritage, sortY: bbox[3],
+        hero: HERO_BY_NAME[b.name] || null,
       };
     });
 
