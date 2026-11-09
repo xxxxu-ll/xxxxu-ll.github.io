@@ -1,14 +1,15 @@
 // 启动流程：加载地图 → 连接世界 → 创建角色 / 恢复存档 → 进入游戏
-import { loadMap } from './mapdata.js?v=202611091021';
-import { buildMapLayers } from './minimap.js?v=202611091021';
-import { Api, retry, ApiError } from './net.js?v=202611091021';
-import { Game } from './game.js?v=202611091021';
-import * as ui from './ui.js?v=202611091021';
+import { loadMap } from './mapdata.js?v=202611091159';
+import { setRenderPPM } from './render.js?v=202611091159';
+import { buildMapLayers } from './minimap.js?v=202611091159';
+import { Api, retry, ApiError } from './net.js?v=202611091159';
+import { Game } from './game.js?v=202611091159';
+import * as ui from './ui.js?v=202611091159';
 import {
   SKINS, HAIRS, TOPS, PANTS, SHOES, HAIR_STYLES, ACCESSORIES, buildCharacterSheet,
-} from './sprites.js?v=202611091021';
-import { normalizeRecovery } from './util.js?v=202611091021';
-import { toast } from './ui.js?v=202611091021';
+} from './sprites.js?v=202611091159';
+import { normalizeRecovery } from './util.js?v=202611091159';
+import { toast } from './ui.js?v=202611091159';
 
 const $ = (id) => document.getElementById(id);
 
@@ -52,6 +53,7 @@ async function checkWorld({ quiet = false } = {}) {
 // ---------------- 启动 ----------------
 async function boot() {
   try {
+    if (new URLSearchParams(location.search).get('tile') === '1') setRenderPPM(8);
     ui.bootProgress(0.08, '正在加载燕园地图…');
     const world = await loadMap((p, text) => ui.bootProgress(0.08 + p * 0.55, text));
     state.world = world;

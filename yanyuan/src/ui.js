@@ -1,7 +1,7 @@
 // 界面层：HUD、提示、聊天、手册、弹窗
-import { escapeHtml, pad2 } from './util.js?v=202611091021';
-import { ACHIEVEMENTS } from './progress.js?v=202611091021';
-import { affinityLabel, AFF, HABIT_TEXT, catAwake } from './cats.js?v=202611091021';
+import { escapeHtml, pad2 } from './util.js?v=202611091159';
+import { ACHIEVEMENTS } from './progress.js?v=202611091159';
+import { affinityLabel, AFF, HABIT_TEXT, catAwake } from './cats.js?v=202611091159';
 
 const $ = (id) => document.getElementById(id);
 

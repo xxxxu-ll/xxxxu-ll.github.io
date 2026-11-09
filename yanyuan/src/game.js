@@ -1,17 +1,18 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091021';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091021';
-import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091021';
-import { heritageText } from './heritage.js?v=202611091021';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091159';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091159';
+import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091159';
+import { heritageText } from './heritage.js?v=202611091159';
+import { PILOT, inPilot, buildCells, drawPilotGround, drawTileBuilding, drawTileTree } from './tilepilot.js?v=202611091159';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611091021';
-import { capturePhoto, savePhoto } from './photo.js?v=202611091021';
-import { MapView, MiniMap } from './minimap.js?v=202611091021';
-import { placeFor } from './places.js?v=202611091021';
-import * as ui from './ui.js?v=202611091021';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091021';
+} from './progress.js?v=202611091159';
+import { capturePhoto, savePhoto } from './photo.js?v=202611091159';
+import { MapView, MiniMap } from './minimap.js?v=202611091159';
+import { placeFor } from './places.js?v=202611091159';
+import * as ui from './ui.js?v=202611091159';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091159';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -21,6 +22,8 @@ const INTERACT_R = 2.8;
 export class Game {
   constructor({ world, api, character, progress, layers, offline = false }) {
     this.world = world;
+    this.tileMode = new URLSearchParams(location.search).get('tile') === '1';
+    if (this.tileMode) buildCells(world);
     this.api = api;
     this.character = character;
     this.offline = offline;
@@ -717,6 +720,8 @@ export class Game {
     g.imageSmoothingEnabled = false;
 
     this.ground.draw(g, cam);
+
+    if (this.tileMode) drawPilotGround(g, cam);
     drawWaterAnim(g, this.world, cam, now);
 
     const view = cam.viewRect(3);
@@ -726,7 +731,7 @@ export class Game {
 
     for (const b of this.world.buildings) {
       if (b.bbox[2] < view[0] || b.bbox[0] > view[2] || b.bbox[3] < view[1] || b.bbox[1] > view[3]) continue;
-      items.push({ y: b.bbox[3], k: 'b', o: b });
+      items.push({ y: b.bbox[3], k: this.tileMode && inPilot((b.bbox[0]+b.bbox[2])/2, (b.bbox[1]+b.bbox[3])/2) ? 'tb' : 'b', o: b });
       if (b.name && b.area > 240 && !this.heroKind(b)) {
         const d = Math.hypot(b.label[0] - cam.x, b.label[1] - cam.y);
         if (d < 110) {
@@ -737,7 +742,7 @@ export class Game {
     }
     for (const t of this.world.trees) {
       if (t.x < view[0] || t.x > view[2] || t.y < view[1] || t.y > view[3]) continue;
-      items.push({ y: t.y, k: 't', o: t });
+      items.push({ y: t.y, k: this.tileMode && inPilot(t.x, t.y) ? 'tt' : 't', o: t });
     }
     for (const c of this.cats) {
       if (c.awake === false) continue;
@@ -762,7 +767,10 @@ export class Game {
         const kind = this.heroKind(it.o);
         if (kind) drawLandmark(g, it.o, cam, hour, kind);
         else drawBuilding(g, it.o, cam, hour);
-      } else if (it.k === 't') drawTree(g, it.o, cam);
+      } else if (it.k === 'tb') {
+        this.drawTileBuildingEntity(g, it.o, cam);
+      } else if (it.k === 'tt') drawTileTree(g, it.o, cam);
+      else if (it.k === 't') drawTree(g, it.o, cam);
       else if (it.k === 'h') drawHeritage(g, it.o, cam);
       else if (it.k === 'c') this.drawCatEntity(g, it.o);
       else if (it.k === 'r') this.drawRemote(g, it.o);
@@ -817,6 +825,23 @@ export class Game {
       if (x < -60 || y < -30 || x > this.cssW + 60 || y > this.cssH + 30) continue;
       drawNameTag(ctx, t.text, x, y, 1, t.color, t.dim);
     }
+  }
+
+  /** 图块模式的建筑：颜色取自 style.csv 的瓦色/墙体 */
+  drawTileBuildingEntity(ctx, b, cam) {
+    const fam = (b.st && b.st.tile) || '';
+    const catRoof = { '教学': '#6b665c', '生活': '#a8503a', '食堂': '#b4643c', '园林': '#585349', '体育': '#4f5a66', '校园服务': '#7a5140', '校门': '#8d3520' };
+    const roof = fam.includes('灰瓦') ? '#5a564e'
+      : fam.includes('琉璃') ? '#4f7d5a'
+        : fam.includes('红瓦') ? '#bf5330'
+          : (catRoof[b.cat] || '#6b665c');
+    const wall = (b.st && b.st.wall) || '';
+    const wallC = wall.includes('红砖') ? '#d9b8a4'
+      : wall.includes('石材') ? '#d6d1c4'
+        : wall.includes('木构') ? '#c8a888' : '#efe6d2';
+    const win = (b.st && b.st.win) || '';
+    const band = win.includes('拱窗') ? 3 : win.includes('木格') ? 3 : 1;
+    drawTileBuilding(ctx, b, cam, roof, wallC, band);
   }
 
   drawGroundMarks(ctx) {

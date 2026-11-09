@@ -3,7 +3,8 @@
 import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090903';
 import { heritageType } from './heritage.js?v=202611090903';
 
-export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
+export let RENDER_PPM = 4;             // 低分辨率缓冲每米像素数（图块模式切成 8）
+export function setRenderPPM(v) { RENDER_PPM = v; }
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
 
 // ---------------- 调色板（低饱和、统一明度关系） ----------------
