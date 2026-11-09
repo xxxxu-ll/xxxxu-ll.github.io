@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox } from './util.js?v=202611090615';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090625';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -83,6 +83,26 @@ export class Ground {
     this.cache = new Map();
     this.maxCache = 90;
     this.pattern = null;
+    // 道路预处理：端头延长 + 标记与其它路相接的端点（路口）
+    for (const r of world.roads) r._pts = extendEnds(r.pts, Math.min(1.3, r.w * 0.55));
+    for (const r of world.roads) {
+      r._junction = [];
+      const n = r._pts.length;
+      const ends = [[r._pts[0], r._pts[1]], [r._pts[n - 2], r._pts[n - 1]]];
+      for (const e of ends) {
+        for (const o of world.roads) {
+          if (o === r) continue;
+          if (o.w > r.w + 0.3) continue;                       // 只补到更宽或同级的路
+          if (e[0] < o.bbox[0] - 6 || e[0] > o.bbox[2] + 6 || e[1] < o.bbox[1] - 6 || e[1] > o.bbox[3] + 6) continue;
+          let near = false;
+          for (let i = 0; i < o.pts.length - 2; i += 2) {
+            if (distToSeg(e[0], e[1], o.pts[i], o.pts[i + 1], o.pts[i + 2], o.pts[i + 3]) < o.w * 0.5 + 0.8) { near = true; break; }
+          }
+          if (near) { r._junction.push(e); break; }
+        }
+      }
+    }
+
     // 建筑周边铺装（立面地标不铺，避免地面留空框）
     this.aprons = world.buildings
       .filter(b => b.area > 60 && !b.hero)
@@ -193,11 +213,14 @@ export class Ground {
       for (const ring of w.rings) drawWater(g, ring, w.name);
     }
 
-    // 道路（窄路后画，压在宽路之上）
+    // 道路：同层一起画，路口才不会互相切出深色缺口
     const roads = this.world.roads
       .filter(r => hit(r.bbox, x0, y0, x1, y1))
       .sort((a, b) => b.w - a.w);
-    for (const r of roads) drawRoad(g, r);
+    for (const r of roads) roadShoulder(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway);
+    for (const r of roads) roadSurface(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway, roadRng(r));
+    for (const r of roads) roadTexture(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway, roadRng(r));
+    for (const r of roads) roadMarking(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway);
 
     // 建筑周边铺装：窄一圈，颜色压暗，避免变成画框
     for (const a of this.aprons) {
@@ -355,10 +378,10 @@ function drawWater(g, ring, name) {
   }
 }
 
-// ---------- 道路：碎边 + 颗粒 + 宽窄起伏 ----------
+// ---------- 道路：分层绘制（肩部→路面→颗粒→标线），路口自然衔接 ----------
 const ROAD_STYLE = {
-  footway:     { core: '#c2b493', edge: '#ab9d7d', speck: ['#bfb08d', '#d8cbaa', '#a89a78'], kind: 'path' },
-  path:        { core: '#bcae8e', edge: '#a2947a', speck: ['#b5a685', '#cfc2a2', '#9d8f72'], kind: 'path' },
+  footway:     { core: '#c2b493', edge: '#ab9d7d', speck: ['#b8aa8a', '#cdc0a0', '#a89a7a'], kind: 'path' },
+  path:        { core: '#bcae8e', edge: '#a2947a', speck: ['#b1a384', '#c8bb9c', '#9c8e74'], kind: 'path' },
   steps:       { core: '#c4c0b2', edge: '#a29e90', speck: ['#b6b2a4', '#d2cec0'], kind: 'steps' },
   service:     { core: '#8f8f89', edge: '#75756f', speck: ['#9b9b95', '#81817b', '#a2a29c'], kind: 'asphalt' },
   residential: { core: '#888882', edge: '#6e6e68', speck: ['#94948e', '#7a7a74'], kind: 'asphalt' },
@@ -366,7 +389,13 @@ const ROAD_STYLE = {
   pedestrian:  { core: '#c5b89b', edge: '#a89a7e', speck: ['#bcae90', '#cfc3a6'], kind: 'path' },
 };
 
-/** 把折线切成短段（每段独立宽度，制造自然起伏） */
+const _roadRng = new WeakMap();
+function roadRng(r) {
+  let g = _roadRng.get(r);
+  if (!g) { g = mulberry32(((r.id | 0) * 2654435761 ^ Math.round((r.pts[0] || 0) * 97)) >>> 0); _roadRng.set(r, g); }
+  return g;
+}
+
 function roadPieces(pts, seg = 5) {
   const out = [];
   for (let i = 0; i < pts.length - 2; i += 2) {
@@ -379,28 +408,41 @@ function roadPieces(pts, seg = 5) {
       out.push([
         ax + (bx - ax) * t0, ay + (by - ay) * t0,
         ax + (bx - ax) * t1, ay + (by - ay) * t1,
+        len,
       ]);
     }
   }
   return out;
 }
 
-function drawRoad(g, r) {
-  const st = ROAD_STYLE[r.kind] || ROAD_STYLE.footway;
-  const rng = mulberry32(((r.id | 0) * 2654435761 ^ Math.round((r.pts[0] || 0) * 97)) >>> 0);
+/** 把路的两端各延长一点，端头埋进相交的路里，避免圆帽露出 */
+function extendEnds(pts, ext) {
+  const n = pts.length;
+  if (n < 4) return pts;
+  const out = pts.slice();
+  const d0x = pts[0] - pts[2], d0y = pts[1] - pts[3];
+  const l0 = Math.hypot(d0x, d0y);
+  if (l0 > 0.01) { out[0] = pts[0] + (d0x / l0) * ext; out[1] = pts[1] + (d0y / l0) * ext; }
+  const d1x = pts[n - 2] - pts[n - 4], d1y = pts[n - 1] - pts[n - 3];
+  const l1 = Math.hypot(d1x, d1y);
+  if (l1 > 0.01) {
+    out[n - 2] = pts[n - 2] + (d1x / l1) * ext;
+    out[n - 1] = pts[n - 1] + (d1y / l1) * ext;
+  }
+  return out;
+}
+
+function roadShoulder(g, r, st) {
   const w = r.w;
-  const pieces = roadPieces(r.pts, st.kind === 'path' ? 4 : 6);
-  if (!pieces.length) return;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-
-  // 1) 肩部：比路面略宽、极淡，让路和草地过渡
-  g.beginPath(); traceLine(g, r.pts);
-  g.strokeStyle = st.kind === 'asphalt' ? 'rgba(110,110,104,.30)' : 'rgba(120,118,88,.22)';
-  g.lineWidth = w + (st.kind === 'asphalt' ? 1.8 : 1.4);
+  g.beginPath(); traceLine(g, r._pts);
+  g.strokeStyle = st.kind === 'asphalt' ? 'rgba(108,108,102,.34)' : 'rgba(120,118,88,.20)';
+  g.lineWidth = w + (st.kind === 'asphalt' ? 1.9 : 1.5);
   g.stroke();
+}
 
-  // 2) 路面：逐段微调宽度
+function roadSurface(g, r, st, rng) {
+  const w = r.w;
+  const pieces = roadPieces(r._pts, st.kind === 'path' ? 4 : 6);
   for (const p of pieces) {
     const jitter = 0.94 + rng() * 0.12;
     g.beginPath();
@@ -410,13 +452,22 @@ function drawRoad(g, r) {
     g.lineWidth = w * jitter;
     g.stroke();
   }
+  // 路口补一块圆形铺装，把两条路的端头连成一片
+  if (r._junction && r._junction.length) {
+    g.fillStyle = st.core;
+    for (const j of r._junction) {
+      g.beginPath();
+      g.arc(j[0], j[1], w * 0.52, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+}
 
-  // 3) 颗粒：沿中线撒碎石/沥青斑点
+function roadTexture(g, r, st, rng) {
+  const w = r.w;
   const step = st.kind === 'path' ? 1.5 : 0.9;
-  const specs = Math.min(220, Math.round(totalLength(r.pts) / step));
-  let walked = 0;
-  for (let i = 0; i < r.pts.length - 2 && specs > 0; i += 2) {
-    const ax = r.pts[i], ay = r.pts[i + 1], bx = r.pts[i + 2], by = r.pts[i + 3];
+  for (let i = 0; i < r._pts.length - 2; i += 2) {
+    const ax = r._pts[i], ay = r._pts[i + 1], bx = r._pts[i + 2], by = r._pts[i + 3];
     const len = Math.hypot(bx - ax, by - ay);
     if (len < 0.05) continue;
     const nx = -(by - ay) / len, ny = (bx - ax) / len;
@@ -424,18 +475,16 @@ function drawRoad(g, r) {
       const t = d / len;
       const cx = ax + (bx - ax) * t, cy = ay + (by - ay) * t;
       const n = st.kind === 'asphalt' ? 1 : (rng() < 0.45 ? 1 : 0);
-      // 偶尔一块踩旧的路面补丁
+      for (let k = 0; k < n; k++) {
+        const off = (rng() - 0.5) * w * 0.86;
+        g.fillStyle = st.speck[(rng() * st.speck.length) | 0];
+        g.fillRect(cx + nx * off, cy + ny * off, st.kind === 'asphalt' ? 0.55 : 0.5, 0.5);
+      }
       if (rng() < 0.05) {
         g.fillStyle = st.kind === 'asphalt' ? 'rgba(120,120,114,.35)' : 'rgba(206,196,168,.45)';
         g.fillRect(cx - w * 0.25 + (rng() - 0.5) * w * 0.3, cy - 0.6, w * 0.5, 1.2);
       }
-      for (let k = 0; k < n; k++) {
-        const off = (rng() - 0.5) * w * 0.86;
-        const px = cx + nx * off, py = cy + ny * off;
-        g.fillStyle = st.speck[(rng() * st.speck.length) | 0];
-        g.fillRect(px, py, st.kind === 'asphalt' ? 0.55 : 0.5, 0.5);
-      }
-      // 边缘碎化：把笔直的边打散
+      // 边缘碎化
       if (rng() < 0.55) {
         const side = rng() < 0.5 ? 1 : -1;
         const off = side * (w * 0.5 + (rng() - 0.3) * 0.55);
@@ -444,27 +493,26 @@ function drawRoad(g, r) {
       }
     }
   }
+}
 
-  // 4) 车行道：路缘石（内侧亮线 + 外侧暗线）
+function roadMarking(g, r, st) {
+  const w = r.w;
   if (st.kind === 'asphalt' && w >= 3.4) {
-    g.beginPath(); traceLine(g, r.pts);
-    g.strokeStyle = 'rgba(210,208,196,.55)';
+    g.beginPath(); traceLine(g, r._pts);
+    g.strokeStyle = 'rgba(210,208,196,.5)';
     g.lineWidth = 0.5;
     g.setLineDash([]);
     g.stroke();
   }
-
-  // 5) 标线
   if (st.kind === 'asphalt' && w >= 4.4) {
     g.strokeStyle = 'rgba(238,236,224,.8)';
     g.lineWidth = 0.3;
     g.setLineDash([2.2, 2.8]);
-    g.beginPath(); traceLine(g, r.pts); g.stroke();
+    g.beginPath(); traceLine(g, r._pts); g.stroke();
     g.setLineDash([]);
   } else if (st.kind === 'steps') {
-    // 台阶：横档
-    for (let i = 0; i < r.pts.length - 2; i += 2) {
-      const ax = r.pts[i], ay = r.pts[i + 1], bx = r.pts[i + 2], by = r.pts[i + 3];
+    for (let i = 0; i < r._pts.length - 2; i += 2) {
+      const ax = r._pts[i], ay = r._pts[i + 1], bx = r._pts[i + 2], by = r._pts[i + 3];
       const len = Math.hypot(bx - ax, by - ay);
       if (len < 0.05) continue;
       const nx = -(by - ay) / len, ny = (bx - ax) / len;
@@ -479,14 +527,6 @@ function drawRoad(g, r) {
       }
     }
   }
-}
-
-function totalLength(pts) {
-  let n = 0;
-  for (let i = 0; i < pts.length - 2; i += 2) {
-    n += Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
-  }
-  return n;
 }
 function traceLine(g, pts) {
   g.moveTo(pts[0], pts[1]);
