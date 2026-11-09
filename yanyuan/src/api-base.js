@@ -1,3 +1,3 @@
-// 由 tools/publish-pages.mjs 生成（2026-11-09T05:02:52.244Z）
+// 由 tools/publish-pages.mjs 生成（2026-11-09T05:05:58.772Z）
 export const API_BASE = "https://yanyuan-world.yanyuan-pku.workers.dev/api";
-export const BUILD_ID = "202611090502";
+export const BUILD_ID = "202611090505";

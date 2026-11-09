@@ -1,5 +1,5 @@
 // 拍照：把当前画面连同一枚校园印章保存为 PNG
-import { pad2 } from './util.js?v=202611090502';
+import { pad2 } from './util.js?v=202611090505';
 
 export function capturePhoto(sourceCanvas, { place = '燕园', name = '', date = new Date(), cat = null } = {}) {
   const src = sourceCanvas;
