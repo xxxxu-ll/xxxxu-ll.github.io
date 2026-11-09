@@ -1012,120 +1012,214 @@ export function drawBuilding(ctx, b, cam, hour) {
   const floorH = (wallH - eaveM) / floors;
   const winCol = classic ? 'rgba(120,70,50,.75)' : 'rgba(86,114,134,.78)';
 
-  if (classic) {
+  // ---- 立面原型：不同楼给完全不同的"正面" ----
+  const facades = {
+    '教学': ['glass', 'arch', 'brick', 'banner', 'arch', 'glass'],
+    '生活': ['balcony', 'brick', 'balcony', 'banner'],
+    '食堂': ['shop', 'shop', 'glass'],
+    '园林': ['classic', 'classic', 'arch'],
+    '体育': ['glass', 'glass', 'banner'],
+    '校园服务': ['shop', 'glass', 'brick'],
+    '校门': ['classic'],
+  };
+  const fList = facades[b.cat] || facades['教学'];
+  const facade = variant === 'classic' ? 'classic' : fList[seed % fList.length];
+
+  if (facade === 'classic') {
     // 古建立面：白墙 + 朱红立柱 + 木格窗
     const cols = Math.max(2, Math.round(w / 4.2));
     const gap = w / (cols - 1 || 1);
     ctx.fillStyle = '#b23a28';
-    for (let i = 0; i < cols; i++) {
-      const cx2 = bb[0] + i * gap;
-      ctx.fillRect(cx2 - 0.28, wallTop + eaveM, 0.56, wallH - eaveM);
-    }
+    for (let i = 0; i < cols; i++) ctx.fillRect(bb[0] + i * gap - 0.28, wallTop + eaveM, 0.56, wallH - eaveM);
     for (let f = 0; f < floors; f++) {
       const fy = wallTop + eaveM + f * floorH + floorH * 0.24;
       const wh = Math.min(1.7, floorH * 0.46);
       for (let i = 0; i < cols - 1; i++) {
-        const wx = bb[0] + i * gap + gap * 0.22;
-        const ww = gap * 0.56;
-        ctx.fillStyle = winCol;
+        const wx = bb[0] + i * gap + gap * 0.22, ww = gap * 0.56;
+        ctx.fillStyle = 'rgba(112,68,48,.8)';
         ctx.fillRect(wx, fy, ww, wh);
         ctx.fillStyle = 'rgba(240,220,180,.35)';
         ctx.fillRect(wx, fy, ww, 0.18);
-        ctx.fillRect(wx, fy, 0.18, wh);
+        ctx.fillRect(wx + ww * 0.5, fy, 0.16, wh);
       }
     }
-    // 台基
     ctx.fillStyle = '#bdb6a4';
     ctx.fillRect(bb[0], bb[3] - Math.min(0.8, wallH * 0.12), w, Math.min(0.8, wallH * 0.12));
-  } else if (variant === 'dorm') {
-    // 宿舍：阳台 + 栏板 + 门洞
+  } else if (facade === 'glass') {
+    // 玻璃幕墙：整片竖梃 + 几块反光
+    ctx.fillStyle = 'rgba(96,132,156,.85)';
+    ctx.fillRect(bb[0] + 0.5, wallTop + eaveM, w - 1, wallH - eaveM);
+    for (let x = bb[0] + 1.2; x < bb[2] - 0.8; x += 1.9) {
+      ctx.fillStyle = 'rgba(226,238,244,.45)';
+      ctx.fillRect(x, wallTop + eaveM, 0.22, wallH - eaveM);
+    }
+    for (let f = 1; f < floors; f++) {
+      ctx.fillStyle = 'rgba(190,206,216,.55)';
+      ctx.fillRect(bb[0] + 0.5, wallTop + eaveM + f * floorH - 0.2, w - 1, 0.28);
+    }
+    const gx = bb[0] + w * (0.2 + (seed % 5) * 0.12);
+    ctx.fillStyle = 'rgba(232,244,250,.55)';
+    ctx.fillRect(gx, wallTop + eaveM + floorH * 0.3, Math.min(3.4, w * 0.16), floorH * 0.5);
+    if (night) {
+      ctx.fillStyle = 'rgba(255,232,170,.35)';
+      for (let f = 0; f < floors; f++) {
+        ctx.fillRect(bb[0] + w * (0.15 + f * 0.2), wallTop + eaveM + f * floorH + 0.4, w * 0.12, floorH * 0.5);
+      }
+    }
+  } else if (facade === 'shop') {
+    // 沿街门脸：一层大橱窗 + 条纹雨篷 + 招牌，上层小窗
+    const shopH = Math.min(floorH * 1.15, wallH * 0.52);
+    const sy = bb[3] - shopH;
+    ctx.fillStyle = '#f0e6d0';
+    ctx.fillRect(bb[0], sy, w, shopH);
+    const units = Math.max(2, Math.round(w / 3.6));
+    const ug = w / units;
+    for (let i = 0; i < units; i++) {
+      const wx = bb[0] + i * ug + ug * 0.12;
+      ctx.fillStyle = night ? 'rgba(255,226,150,.9)' : 'rgba(92,124,146,.85)';
+      ctx.fillRect(wx, sy + shopH * 0.26, ug * 0.76, shopH * 0.58);
+      ctx.fillStyle = 'rgba(240,248,252,.35)';
+      ctx.fillRect(wx + ug * 0.08, sy + shopH * 0.3, ug * 0.24, shopH * 0.5);
+    }
+    const aw = w * 0.9, ax = bb[0] + w * 0.05;
+    ctx.fillStyle = '#b23a2a';
+    ctx.fillRect(ax, sy + shopH * 0.2, aw, Math.max(0.6, shopH * 0.1));
+    ctx.fillStyle = 'rgba(246,238,220,.9)';
+    for (let x = ax; x < ax + aw; x += 1.6) ctx.fillRect(x, sy + shopH * 0.2, 0.8, Math.max(0.6, shopH * 0.1));
+    ctx.fillStyle = '#8f3a24';
+    ctx.fillRect(ax, sy + shopH * 0.02, aw, Math.max(0.8, shopH * 0.14));
+    ctx.fillStyle = 'rgba(255,240,210,.85)';
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(ax + 1 + i * 1.7, sy + shopH * 0.06, 1, Math.max(0.4, shopH * 0.06));
+    }
+    for (let f = 0; f < floors - 1; f++) {
+      const fy = wallTop + eaveM + f * floorH + floorH * 0.24;
+      for (let x = bb[0] + 1.4; x < bb[2] - 1.4; x += 3.2) {
+        ctx.fillStyle = night && rng() > 0.5 ? '#ffe9a8' : 'rgba(86,114,134,.7)';
+        ctx.fillRect(x, fy, 1.7, Math.min(1.5, floorH * 0.42));
+      }
+    }
+  } else if (facade === 'arch') {
+    // 民国风拱窗：砖红墙 + 白色拱券 + 石质窗套
+    ctx.fillStyle = 'rgba(150,74,52,.14)';
+    ctx.fillRect(bb[0], wallTop, w, wallH);
+    const cols = Math.max(2, Math.round(w / 3.4));
+    const gap = w / cols;
+    for (let f = 0; f < floors; f++) {
+      const fy = wallTop + eaveM + f * floorH + floorH * 0.18;
+      const wh = Math.min(2.1, floorH * 0.6);
+      for (let c = 0; c < cols; c++) {
+        const wx = bb[0] + c * gap + gap * 0.24, ww = gap * 0.52;
+        ctx.fillStyle = 'rgba(250,244,230,.9)';
+        ctx.fillRect(wx - 0.3, fy - 0.3, ww + 0.6, wh + 0.6);
+        ctx.fillStyle = night && rng() > 0.55 ? '#ffe9a8' : 'rgba(84,110,128,.8)';
+        ctx.fillRect(wx, fy, ww, wh);
+        ctx.fillStyle = 'rgba(250,244,230,.9)';
+        ctx.fillRect(wx - 0.3, fy - 0.3, ww + 0.6, 0.3);
+        ctx.fillRect(wx + ww * 0.35, fy - 0.75, ww * 0.3, 0.5);
+        ctx.fillStyle = night && rng() > 0.5 ? '#ffe9a8' : 'rgba(84,110,128,.8)';
+        ctx.fillRect(wx + ww * 0.22, fy - 0.5, ww * 0.56, 0.5);
+      }
+    }
+    ctx.fillStyle = 'rgba(252,246,232,.75)';
+    ctx.fillRect(bb[0], wallTop + eaveM, w, 0.35);
+  } else if (facade === 'brick') {
+    // 砖墙：砖缝 + 少量方窗 + 空调外机
+    ctx.fillStyle = 'rgba(140,86,64,.16)';
+    ctx.fillRect(bb[0], wallTop, w, wallH);
+    ctx.fillStyle = 'rgba(120,74,54,.10)';
+    for (let y = wallTop + 0.4; y < bb[3]; y += 0.55) {
+      for (let x = bb[0] + ((Math.round(y * 2) % 2) ? 1.2 : 0.2); x < bb[2]; x += 2.4) {
+        ctx.fillRect(x, y, 2.2, 0.12);
+      }
+    }
+    for (let f = 0; f < floors; f++) {
+      const fy = wallTop + eaveM + f * floorH;
+      for (let x = bb[0] + 2.2; x < bb[2] - 2; x += 4.6) {
+        const wh = Math.min(1.7, floorH * 0.44);
+        ctx.fillStyle = 'rgba(90,116,134,.78)';
+        ctx.fillRect(x, fy + floorH * 0.28, 1.9, wh);
+        ctx.fillStyle = 'rgba(252,246,232,.6)';
+        ctx.fillRect(x - 0.2, fy + floorH * 0.28 + wh, 2.3, 0.22);
+        if (rng() > 0.5) {
+          ctx.fillStyle = '#cfd2cc';
+          ctx.fillRect(x + 2.2, fy + floorH * 0.5, 1.1, 0.8);
+          ctx.fillStyle = 'rgba(80,84,80,.4)';
+          ctx.fillRect(x + 2.2, fy + floorH * 0.5 + 0.8, 1.1, 0.15);
+        }
+      }
+    }
+  } else if (facade === 'banner') {
+    // 实墙 + 正门 + 红底标语（校训、院训那种）
+    ctx.fillStyle = 'rgba(210,198,176,.35)';
+    ctx.fillRect(bb[0], wallTop, w, wallH);
+    const cols = Math.max(3, Math.round(w / 5));
+    const gap = w / (cols - 1 || 1);
+    ctx.fillStyle = 'rgba(255,250,236,.5)';
+    for (let i = 0; i < cols; i++) ctx.fillRect(bb[0] + i * gap - 0.3, wallTop + eaveM, 0.6, wallH - eaveM);
+    const wins = Math.max(1, Math.round(w / 7));
+    for (let i = 0; i < wins; i++) {
+      const wx = bb[0] + (i + 0.5) * (w / wins) - 1.1;
+      ctx.fillStyle = 'rgba(90,116,134,.7)';
+      ctx.fillRect(wx, wallTop + eaveM + floorH * 0.3, 2.2, floorH * 0.4);
+    }
+    const bw = Math.min(w * 0.42, 12), bx = bb[0] + (w - bw) / 2;
+    const bh = Math.min(1.6, wallH * 0.2), byy = wallTop + eaveM + wallH * 0.12;
+    ctx.fillStyle = '#b23a2a';
+    ctx.fillRect(bx, byy, bw, bh);
+    ctx.fillStyle = 'rgba(255,242,214,.9)';
+    for (let i = 0; i < 6; i++) {
+      ctx.fillRect(bx + 0.7 + i * (bw - 1.4) / 6, byy + bh * 0.25, (bw - 1.4) / 6 * 0.6, bh * 0.5);
+    }
+  } else {
+    // balcony：宿舍阳台，偶尔晾着被子
     const cols = Math.max(2, Math.round(w / 3.6));
     const gap = w / cols;
     for (let f = 0; f < floors; f++) {
       const fy = wallTop + eaveM + f * floorH;
       const railH = Math.min(0.9, floorH * 0.26);
       for (let c = 0; c < cols; c++) {
-        const wx = bb[0] + c * gap + gap * 0.12;
-        const ww = gap * 0.76;
-        // 阳台栏板
+        const wx = bb[0] + c * gap + gap * 0.12, ww = gap * 0.76;
         ctx.fillStyle = 'rgba(255,250,238,.5)';
         ctx.fillRect(wx, fy + floorH - railH - 0.2, ww, railH);
         ctx.fillStyle = 'rgba(120,104,82,.35)';
         ctx.fillRect(wx, fy + floorH - 0.35, ww, 0.35);
-        // 阳台内的门窗
         const lit = night && rng() > 0.4;
         ctx.fillStyle = lit ? '#ffe9a8' : 'rgba(86,114,134,.7)';
         ctx.fillRect(wx + ww * 0.08, fy + floorH * 0.2, ww * 0.36, floorH * 0.46);
         ctx.fillStyle = lit ? 'rgba(255,240,200,.5)' : 'rgba(120,90,70,.55)';
         ctx.fillRect(wx + ww * 0.56, fy + floorH * 0.24, ww * 0.34, floorH * 0.42);
-      }
-    }
-  } else if (flat) {
-    // 现代：横向带窗
-    for (let f = 0; f < floors; f++) {
-      const fy = wallTop + eaveM + f * floorH + floorH * 0.26;
-      const bh = Math.min(1.5, floorH * 0.42);
-      const lit = night && rng() > 0.5;
-      ctx.fillStyle = lit ? 'rgba(255,233,168,.9)' : 'rgba(78,104,124,.8)';
-      ctx.fillRect(bb[0] + 0.8, fy, w - 1.6, bh);
-      ctx.fillStyle = 'rgba(255,255,248,.55)';
-      ctx.fillRect(bb[0] + 0.8, fy + bh, w - 1.6, 0.22);
-      for (let x = bb[0] + 2.2; x < bb[2] - 1.6; x += 2.4) {
-        ctx.fillStyle = 'rgba(240,244,240,.28)';
-        ctx.fillRect(x, fy, 0.16, bh);
-      }
-    }
-  } else {
-    // 砖混/坡屋顶：点窗
-    const cols = Math.max(2, Math.round(w / 2.8));
-    const gap = w / cols;
-    for (let f = 0; f < floors; f++) {
-      const fy = wallTop + eaveM + f * floorH;
-      const isGround = f === floors - 1;
-      for (let c = 0; c < cols; c++) {
-        const wx = bb[0] + c * gap + gap * 0.22;
-        const ww = Math.min(1.8, gap * 0.62);
-        const wh = Math.min(1.9, floorH * (isGround ? 0.42 : 0.52));
-        const wy = fy + floorH * (isGround ? 0.34 : 0.18);
-        const lit = night && rng() > 0.45;
-        ctx.fillStyle = lit ? '#ffe9a8' : winCol;
-        ctx.fillRect(wx, wy, ww, wh);
-        ctx.fillStyle = 'rgba(255,250,238,.55)';
-        ctx.fillRect(wx - 0.15, wy + wh, ww + 0.3, 0.22);
-        if (ww > 1) {
-          ctx.fillStyle = 'rgba(255,250,238,.25)';
-          ctx.fillRect(wx + ww * 0.47, wy, 0.16, wh);
+        if (rng() > 0.72) {
+          ctx.fillStyle = ['#d98a6a', '#7f9ec4', '#c4b06a'][(rng() * 3) | 0];
+          ctx.fillRect(wx + ww * 0.2, fy + floorH - railH - 0.9, ww * 0.5, 0.7);
         }
       }
     }
   }
 
-  // 入口
-  if (w > 8) {
-    const dw = Math.min(classic ? 4.2 : 5, w * 0.16);
+  // 接地阴影
+  ctx.fillStyle = 'rgba(30,22,14,.26)';
+  ctx.fillRect(bb[0], bb[3] - Math.min(0.7, wallH * 0.1), w, Math.min(0.7, wallH * 0.1));
+
+  // 入口（玻璃幕墙和门脸不用再加门）
+  if (w > 8 && facade !== 'glass' && facade !== 'shop') {
+    const dw = Math.min(5, w * 0.16);
     const dh = Math.min(floorH * 0.8, 3.2);
     const dx = bb[0] + (w - dw) / 2;
     const dy = bb[3] - dh;
-    if (!classic) {
+    if (facade !== 'classic') {
       ctx.fillStyle = 'rgba(40,34,26,.28)';
       ctx.fillRect(dx - 1.2, dy - 0.4, dw + 2.4, 0.5);
       ctx.fillStyle = '#e6dcc4';
       ctx.fillRect(dx - 1.4, dy - 1.1, dw + 2.8, 0.7);
-      ctx.fillStyle = 'rgba(60,52,40,.4)';
-      ctx.fillRect(dx - 1.4, dy - 0.35, dw + 2.8, 0.22);
     }
-    ctx.fillStyle = classic ? 'rgba(150,54,36,.95)' : 'rgba(52,54,50,.82)';
+    ctx.fillStyle = facade === 'classic' ? 'rgba(150,54,36,.95)' : 'rgba(52,54,50,.85)';
     ctx.fillRect(dx, dy, dw, dh);
     ctx.fillStyle = 'rgba(255,240,200,.20)';
     ctx.fillRect(dx + dw * 0.12, dy + dh * 0.12, dw * 0.28, dh * 0.76);
     ctx.fillRect(dx + dw * 0.56, dy + dh * 0.12, dw * 0.28, dh * 0.76);
-    if (wallH > 9 && !classic) {
-      ctx.fillStyle = '#b23a2a';
-      ctx.fillRect(dx - 0.8, dy - 2.4, dw + 1.6, 1);
-      ctx.fillStyle = 'rgba(255,240,210,.8)';
-      for (let i = 0; i < 3; i++) ctx.fillRect(dx + 0.4 + i * dw * 0.26, dy - 2.0, dw * 0.16, 0.3);
-    }
   }
+
   ctx.restore();
   ctx.restore();
 
