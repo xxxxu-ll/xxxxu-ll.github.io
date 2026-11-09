@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091218';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091218';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091229';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091229';
 
 // 静园片区（米）：涵盖静园草坪、三院到六院、哲学楼、燕南食堂
 export const PILOT = { x0: -250, y0: 90, x1: 130, y1: 400 };
@@ -78,7 +78,9 @@ export function drawPilotGround(ctx, cam) {
       }
       if (kind === 'path') {
         // 压暗 + 只在挨着草地/水的那一边描边，读作"路缘"
-        ctx.fillStyle = 'rgba(56,54,44,.36)';
+        ctx.fillStyle = 'rgba(56,54,44,.34)';
+        ctx.fillRect(dx, dy, px, px);
+        ctx.fillStyle = 'rgba(158,160,148,.30)';
         ctx.fillRect(dx, dy, px, px);
         ctx.fillStyle = 'rgba(54,50,40,.45)';
         const nb = (dcx, dcy) => cells.get((cx + dcx) + ',' + (cy + dcy)) || 'grass';
@@ -135,32 +137,41 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, 
   ctx.fillStyle = 'rgba(50,42,32,.28)';
   ctx.fillRect(dx0, dy1 - Math.max(1, px * 0.16), w, Math.max(1, px * 0.16));
 
-  // 屋顶：铺在墙顶之上
+  // 屋顶：比墙宽出半格做挑檐，再铺瓦
+  const eaveOut = Math.round(px * 0.5);
+  const rx0 = dx0 - eaveOut, rx1 = dx1 + eaveOut;
+  const rTop = roofTop - Math.round(px * 0.25);
   ctx.save();
-  ctx.beginPath(); ctx.rect(dx0, roofTop, w, depth); ctx.clip();
-  for (let y = roofTop; y < roofBot + px; y += px) {
-    for (let x = dx0; x < dx1; x += px) {
+  ctx.beginPath(); ctx.rect(rx0, rTop, rx1 - rx0, depth); ctx.clip();
+  for (let y = rTop; y < roofBot + px; y += px) {
+    for (let x = rx0; x < rx1; x += px) {
       drawRoofTile(ctx, roofColor, x, y, px, (b.id || 1) + x + y);
     }
   }
   ctx.restore();
+  // 檐圈（外侧压深）+ 顶边高光
+  ctx.strokeStyle = eaveColor;
+  ctx.lineWidth = Math.max(1, px * 0.14);
+  ctx.strokeRect(rx0 + 0.5, rTop + 0.5, rx1 - rx0 - 1, depth - 1);
+  ctx.fillStyle = 'rgba(255,246,226,.30)';
+  ctx.fillRect(rx0, rTop, rx1 - rx0, Math.max(1, px * 0.1));
   // 檐口（屋顶最低一排压暗）
   ctx.fillStyle = eaveColor;
   ctx.fillRect(dx0, roofBot - Math.max(1, px * 0.22), w, Math.max(1, px * 0.22));
-  ctx.strokeStyle = 'rgba(28,22,18,.5)';
+  ctx.strokeStyle = 'rgba(28,22,18,.45)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(dx0 + 0.5, roofTop + 0.5, w - 1, depth + wallPx - 1);
+  ctx.strokeRect(dx0 + 0.5, rTop + 0.5, w - 1, depth + wallPx - 1);
 
   // 正脊
   const horiz = w >= depth;
   ctx.save();
-  ctx.beginPath(); ctx.rect(dx0, roofTop, w, depth); ctx.clip();
+  ctx.beginPath(); ctx.rect(rx0, rTop, rx1 - rx0, depth); ctx.clip();
   if (horiz) {
-    const ry = Math.round(roofTop + depth / 2 - px / 2);
-    for (let x = dx0; x < dx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
+    const ry = Math.round(rTop + depth / 2 - px / 2);
+    for (let x = rx0; x < rx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
   } else {
-    const rx = Math.round(dx0 + w / 2 - px / 2);
-    for (let y = roofTop; y < roofBot + px; y += px) drawRidgeTile(ctx, roofColor, rx, y, px);
+    const rxc = Math.round(dx0 + w / 2 - px / 2);
+    for (let y = rTop; y < roofBot + px; y += px) drawRidgeTile(ctx, roofColor, rxc, y, px);
   }
   ctx.restore();
 

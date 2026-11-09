@@ -1,7 +1,7 @@
 // 图块素材：来源于 CC0 公共领域素材包 Ninja Adventure（pixel-boy）
 // https://github.com/pixel-boy/NinjaAdventure  ·  License: CC0-1.0
 // 只取其中 16×16 的地面瓦片；建筑用程序化图块（同一套调色板）
-import { mulberry32 } from './util.js?v=202611091218';
+import { mulberry32 } from './util.js?v=202611091229';
 
 export const TILE = 16;            // 图块像素
 export const TILE_M = 2;           // 一格 = 2 米
@@ -22,8 +22,8 @@ export function atlasReady() { return ready; }
 
 // 从 CC0 素材图里取的地面瓦片（列, 行）；同一类给多个变体，按坐标哈希挑选
 const GROUND = {
-  grass: [[13, 12], [15, 12], [11, 12], [14, 13]],
-  path: [[2, 17], [3, 17], [2, 18], [4, 18]],
+  grass: [[13, 12], [15, 12], [12, 12], [14, 12]],
+  path: [],
   water: [[11, 25], [13, 25], [12, 26]],
 };
 
@@ -32,8 +32,34 @@ function pickVariant(list, dx, dy) {
   return list[h % list.length];
 }
 
+/** 程序化石板路：低对比、2x2 石板 + 细缝 */
+export function drawPavingTile(ctx, dx, dy, px = TILE) {
+  const rng = mulberry32((dx * 374761393) ^ (dy * 668265263));
+  ctx.fillStyle = '#b9bdb0';
+  ctx.fillRect(dx, dy, px, px);
+  const half = px / 2;
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 2; c++) {
+      const off = r ? half / 2 : 0;
+      const x = dx + c * half + (r ? -half / 2 : 0);
+      const k = 0.94 + rng() * 0.12;
+      ctx.fillStyle = `rgba(${Math.round(185 * k)},${Math.round(189 * k)},${Math.round(176 * k)},1)`;
+      ctx.fillRect(x, dy + r * half, half - 1, half - 1);
+      if (r === 1 && x + half > dx + px) {
+        ctx.fillRect(dx, dy + r * half, half / 2 - 1, half - 1);
+      }
+    }
+  }
+  ctx.fillStyle = 'rgba(120,124,114,.45)';
+  ctx.fillRect(dx, dy + half - 1, px, 1);
+  ctx.fillRect(dx + half - 1, dy, 1, half);
+  ctx.fillRect(dx, dy, px, 1);
+  ctx.fillRect(dx, dy, 1, px);
+}
+
 /** 画一格地面瓦片（素材未就绪时用程序化兜底） */
 export function drawGroundTile(ctx, kind, dx, dy, px = TILE) {
+  if (kind === 'path') { drawPavingTile(ctx, dx, dy, px); return true; }
   const list = GROUND[kind] || GROUND.grass;
   const [sx, sy] = pickVariant(list, dx, dy);
   if (ready) {
