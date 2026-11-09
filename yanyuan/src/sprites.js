@@ -1,5 +1,5 @@
 // 程序化像素精灵：角色四向行走、校园猫、玩家名牌
-import { clamp } from './util.js?v=202611090938';
+import { clamp } from './util.js?v=202611090953';
 
 export const SKINS = ['#f3d3b0', '#ecc19a', '#dfa878', '#c98a5c', '#a86f45', '#7d4f31'];
 export const HAIRS = ['#2a2118', '#4a3524', '#6d4a2c', '#a8703e', '#cf9a52', '#e0bb72', '#9a9a9a', '#42425a'];

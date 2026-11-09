@@ -1026,11 +1026,8 @@ export function drawBuilding(ctx, b, cam, hour) {
   ctx.save();
   at(0, 0);
   // 墙体形状 = 占地轮廓的底部一条带（不会伸出建筑外）
-  ctx.beginPath();
-  ctx.rect(wallX0 - 1, wallTop, wallW + 2, wallH + 1);
-  ctx.clip();
   ctx.fillStyle = wall;
-  ctx.fill(b._path);
+  ctx.fillRect(wallX0, wallTop, wallW, wallH);
   // 立面底色：左右各压一点，读作转角
   ctx.fillStyle = 'rgba(60,44,30,.10)';
   ctx.fillRect(wallX0, wallTop, Math.min(1.2, wallW * 0.04), wallH);
@@ -1048,9 +1045,8 @@ export function drawBuilding(ctx, b, cam, hour) {
   ctx.save();
   at(0, 0);
   ctx.beginPath();
-  ctx.rect(wallX0 - 1, wallTop, wallW + 2, wallH + 1);
+  ctx.rect(wallX0, wallTop, wallW, wallH);
   ctx.clip();
-  ctx.clip(b._path);            // 交集：只在楼体轮廓内的部分显示
   const eaveM = Math.min(0.9, wallH * 0.13);
   const floorsF = clamp(Math.round(wallH / 3.4), 1, 5);
   const floorH = (wallH - eaveM) / floorsF;
