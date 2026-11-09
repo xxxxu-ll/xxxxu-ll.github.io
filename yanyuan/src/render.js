@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090753';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090807';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -86,7 +86,31 @@ export class Ground {
     this.wetBases = world.buildings.filter(b => (b.wetRatio || 0) > 0.3);
 
     // 道路预处理：端头延长 + 标记与其它路相接的端点（路口）
-    for (const r of world.roads) r._pts = extendEnds(r.pts, Math.min(1.3, r.w * 0.55));
+    for (const r of world.roads) r._pts = extendEnds(r.pts, Math.min(1.1, r.w * 0.42));
+    // 斑马线：步道的端点落在车行道范围内
+    for (const r of world.roads) {
+      if (r.w >= 3.2) continue;
+      const n0 = r._pts.length;
+      const ends0 = [[r._pts[0], r._pts[1]], [r._pts[n0 - 2], r._pts[n0 - 1]]];
+      for (const e of ends0) {
+        for (const o of world.roads) {
+          if (o === r || o.w < 3.2) continue;
+          if (e[0] < o.bbox[0] - 4 || e[0] > o.bbox[2] + 4 || e[1] < o.bbox[1] - 4 || e[1] > o.bbox[3] + 4) continue;
+          let near0 = false;
+          for (let i = 0; i < o.pts.length - 2; i += 2) {
+            if (distToSeg(e[0], e[1], o.pts[i], o.pts[i + 1], o.pts[i + 2], o.pts[i + 3]) < o.w * 0.5) { near0 = true; break; }
+          }
+          if (!near0) continue;
+          if (!o._crossings) o._crossings = [];
+          const k2 = 2;
+          o._crossings.push({
+            x: e[0], y: e[1],
+            dx: o.pts[k2] - o.pts[0], dy: o.pts[k2 + 1] - o.pts[1],
+          });
+          break;
+        }
+      }
+    }
     for (const r of world.roads) {
       r._junction = [];
       const n = r._pts.length;
@@ -103,6 +127,15 @@ export class Ground {
           if (near) {
             r._junction.push(e);
             r._junctionCore = (ROAD_STYLE[o.kind] || ROAD_STYLE.footway).core;
+            // 窄路撞宽路：在宽路上记一个斑马线位置
+            if (o.w >= 3.2 && r.w < 3.2) {
+              if (!o._crossings) o._crossings = [];
+              const k2 = Math.min(i + 2, o.pts.length - 2);
+              o._crossings.push({
+                x: e[0], y: e[1],
+                dx: o.pts[k2] - o.pts[i], dy: o.pts[k2 + 1] - o.pts[i + 1],
+              });
+            }
             break;
           }
         }
@@ -332,10 +365,19 @@ export class Ground {
     const roads = this.world.roads
       .filter(r => hit(r.bbox, x0, y0, x1, y1))
       .sort((a, b) => b.w - a.w);
-    for (const r of roads) roadShoulder(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway);
-    for (const r of roads) roadSurface(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway, roadRng(r));
-    for (const r of roads) roadTexture(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway, roadRng(r));
-    for (const r of roads) roadMarking(g, r, ROAD_STYLE[r.kind] || ROAD_STYLE.footway);
+    const sty = (r) => ROAD_STYLE[r.kind] || ROAD_STYLE.footway;
+    const narrow = roads.filter(r => r.w < 3.2);
+    const wide = roads.filter(r => r.w >= 3.2);
+    // 先画步道，再画车行道：车行道压住步道的穿越部分，步道就"停在路边"
+    for (const r of narrow) roadShoulder(g, r, sty(r));
+    for (const r of narrow) roadSurface(g, r, sty(r), roadRng(r));
+    for (const r of narrow) roadTexture(g, r, sty(r), roadRng(r));
+    for (const r of narrow) roadMarking(g, r, sty(r));
+    for (const r of wide) roadShoulder(g, r, sty(r));
+    for (const r of wide) roadSurface(g, r, sty(r), roadRng(r));
+    for (const r of wide) roadTexture(g, r, sty(r), roadRng(r));
+    for (const r of wide) roadMarking(g, r, sty(r));
+    for (const r of wide) roadCrossings(g, r);
 
     // 建筑周边铺装：窄一圈，颜色压暗，避免变成画框
     for (const a of this.aprons) {
@@ -635,7 +677,7 @@ const ROAD_STYLE = {
   steps:       { core: '#c2c8bd', edge: '#a3ab9f', speck: ['#b6bdb1', '#d3d8cd'], kind: 'steps' },
   service:     { core: '#3f4e60', edge: '#333f4d', speck: ['#455468', '#39485a'], kind: 'asphalt' },
   residential: { core: '#3b4a5b', edge: '#303b48', speck: ['#415163', '#354455'], kind: 'asphalt' },
-  cycleway:    { core: '#3f4e60', edge: '#333f4d', speck: ['#455468', '#39485a'], kind: 'asphalt', bike: true },
+  cycleway:    { core: '#cad1c5', edge: '#aeb7ab', speck: ['#c1c9bd', '#d5dbcf'], kind: 'path', bike: true },
   pedestrian:  { core: '#d0d7cb', edge: '#b3bcb0', speck: ['#c8cfc3', '#dae0d4'], kind: 'path' },
 };
 
@@ -783,6 +825,26 @@ function roadMarking(g, r, st) {
     }
   }
 }
+/** 斑马线：步道横穿车行道的位置，画几条横向白线 */
+function roadCrossings(g, r) {
+  if (!r._crossings || !r._crossings.length) return;
+  const half = r.w * 0.5 - 0.6;
+  g.strokeStyle = 'rgba(242,246,240,.88)';
+  g.lineWidth = 0.55;
+  for (const c of r._crossings) {
+    const len = Math.hypot(c.dx, c.dy) || 1;
+    const px = c.dx / len, py = c.dy / len;
+    const nx = -py, ny = px;
+    for (let k = -2; k <= 2; k++) {
+      const ox = c.x + nx * k * 1.15, oy = c.y + ny * k * 1.15;
+      g.beginPath();
+      g.moveTo(ox + px * half, oy + py * half);
+      g.lineTo(ox - px * half, oy - py * half);
+      g.stroke();
+    }
+  }
+}
+
 function traceLine(g, pts) {
   g.moveTo(pts[0], pts[1]);
   for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
