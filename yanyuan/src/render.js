@@ -1,7 +1,7 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090832';
-import { heritageType } from './heritage.js?v=202611090832';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090834';
+import { heritageType } from './heritage.js?v=202611090834';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -897,7 +897,8 @@ export function drawBuilding(ctx, b, cam, hour) {
   const ox = cam.w / 2 - cam.x * S;
   const oy = cam.h / 2 - cam.y * S;
   const at = (dx, dy) => { ctx.translate(ox + dx, oy + dy); ctx.scale(S, S); };
-  const hpx = b._hpx;
+  // 立面上限随缩放走，否则缩小/放大时墙会显得过扁或过高
+  const hpx = Math.max(6, Math.round(b._hpx * cam.zoom));
   const st = b._style;
   const bb = b.bbox;
   const w = bb[2] - bb[0], h = bb[3] - bb[1];
