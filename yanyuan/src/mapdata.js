@@ -1,5 +1,5 @@
 // 地图数据装载与索引：碰撞、空间网格、树木生成、地标检索
-import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090638';
+import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090726';
 
 export const PPM = 8; // 每米像素数（世界渲染基准）
 
@@ -123,8 +123,64 @@ export class World {
     this.landmarks = kept;
     this.exploreTotal = this.landmarks.filter(l => !l.aliasOf).length;
 
+    this._fixWater();
+    this._fixWaterBuildings();
     this._buildCollision();
     this._buildTrees();
+  }
+
+  /**
+   * 数据里有个别水面多边形明显过大（把整片园区都盖成水）。
+   * 判据：水面里压着 2 栋以上实体建筑 → 这个水面标错了，剔除。
+   */
+  _fixWater() {
+    if (!this.water.length) return;
+    const kept = [];
+    let dropped = 0;
+    for (const w of this.water) {
+      let inside = 0;
+      for (const b of this.buildings) {
+        if (b.area < 40) continue;
+        const [x0, y0, x1, y1] = b.bbox;
+        const cx2 = (x0 + x1) / 2, cy2 = (y0 + y1) / 2;
+        if (cx2 < w.bbox[0] || cx2 > w.bbox[2] || cy2 < w.bbox[1] || cy2 > w.bbox[3]) continue;
+        if (w.rings.some(ring => pointInPoly(cx2, cy2, ring))) inside++;
+        if (inside >= 2) break;
+      }
+      if (inside >= 2) { dropped++; continue; }
+      kept.push(w);
+    }
+    this.water = kept;
+    this.droppedWater = dropped;
+  }
+
+  /** 剔除压在水面上的无名小棚子；有名气的保留并标记，渲染时补一圈石台 */
+  _fixWaterBuildings() {
+    if (!this.water.length) return;
+    const kept = [];
+    let dropped = 0;
+    for (const b of this.buildings) {
+      const [x0, y0, x1, y1] = b.bbox;
+      let wet = 0, tot = 0;
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          const x = x0 + (x1 - x0) * (i + 0.5) / 4;
+          const y = y0 + (y1 - y0) * (j + 0.5) / 4;
+          if (!pointInPoly(x, y, b.outer[0])) continue;
+          tot++;
+          for (const w of this.water) {
+            if (x < w.bbox[0] || x > w.bbox[2] || y < w.bbox[1] || y > w.bbox[3]) continue;
+            if (w.rings.some(ring => pointInPoly(x, y, ring))) { wet++; break; }
+          }
+        }
+      }
+      b.wetRatio = tot ? wet / tot : 0;
+      const anonymous = !b.name || /^\(?无名/.test(b.name);
+      if (b.wetRatio > 0.5 && anonymous && b.area < 600) { dropped++; continue; }
+      kept.push(b);
+    }
+    this.buildings = kept;
+    this.droppedWet = dropped;
   }
 
   _ring(pairs, S) {
@@ -234,8 +290,8 @@ export class World {
     // 1) 绿地内成片树
     for (const lc of this.landcover) {
       const [x0, y0, x1, y1] = lc.bbox;
-      const step = lc.wooded ? 7 : 11;
-      const prob = lc.wooded ? 0.82 : 0.46;
+      const step = lc.wooded ? 5.5 : 8;
+      const prob = lc.wooded ? 0.88 : 0.60;
       for (let y = y0 + 3; y < y1 - 3; y += step) {
         for (let x = x0 + 3; x < x1 - 3; x += step) {
           const px = x + (rng() - 0.5) * step * 0.8;
@@ -244,7 +300,7 @@ export class World {
           if (!pointInPoly(px, py, lc.ring)) continue;
           if (!farFromRoad(px, py, 1.8)) continue;
           if (inBuilding(px, py) || inWater(px, py)) continue;
-          trees.push(this._tree(px, py, rng));
+          trees.push(this._tree(px, py, rng, this._nearWater(px, py)));
         }
       }
     }
@@ -259,17 +315,36 @@ export class World {
         if (segLen < 0.01) continue;
         const nx = -(by - ay) / segLen, ny = (bx - ax) / segLen;
         for (let d = 0; d < segLen; d += step) {
-          if (rng() > 0.78) continue;
+          if (rng() > 0.86) continue;
           const side = rng() > 0.5 ? 1 : -1;
           const off = r.w * 0.5 + 1.7 + rng() * 1.4;
           const sx = ax + (bx - ax) * (d / segLen) + nx * off * side;
           const sy = ay + (by - ay) * (d / segLen) + ny * off * side;
           if (inBuilding(sx, sy) || inWater(sx, sy)) continue;
           if (!farFromRoad(sx, sy, 0.9)) continue;
-          trees.push(this._tree(sx, sy, rng));
+          trees.push(this._tree(sx, sy, rng, this._nearWater(sx, sy)));
         }
       }
     }
+    // 3) 建筑周边灌木
+    for (const b of this.buildings) {
+      if (b.area < 90 || (b.wetRatio || 0) > 0.4) continue;
+      const [x0, y0, x1, y1] = b.bbox;
+      const n = Math.min(7, Math.max(1, Math.round(b.area / 300)));
+      for (let i = 0; i < n; i++) {
+        const pad = 2.2 + rng() * 3.2;
+        const side = (rng() * 4) | 0;
+        let x, y;
+        if (side === 0) { x = x0 + rng() * (x1 - x0); y = y0 - pad; }
+        else if (side === 1) { x = x1 + pad; y = y0 + rng() * (y1 - y0); }
+        else if (side === 2) { x = x0 + rng() * (x1 - x0); y = y1 + pad; }
+        else { x = x0 - pad; y = y0 + rng() * (y1 - y0); }
+        if (!farFromRoad(x, y, 0.8)) continue;
+        if (inBuilding(x, y) || inWater(x, y)) continue;
+        trees.push({ x, y, kind: 'bush', s: 0.75 + rng() * 0.7, tone: (rng() * 4) | 0, seed: 0, flip: false });
+      }
+    }
+
     this.trees = trees;
     this._buildLamps();
   }
@@ -298,15 +373,40 @@ export class World {
     this.lamps = lamps;
   }
 
-  _tree(x, y, rng) {
+  _tree(x, y, rng, nearWater = false) {
     const r = rng();
-    const kind = r < 0.16 ? 'pine' : r < 0.34 ? 'willow' : r < 0.62 ? 'broad' : 'round';
+    let kind;
+    if (nearWater) {
+      // 水边：柳树为主，少量槐
+      kind = r < 0.62 ? 'willow' : r < 0.82 ? 'broad' : 'round';
+    } else if (r < 0.10) kind = 'pine';
+    else if (r < 0.20) kind = 'cypress';
+    else if (r < 0.34) kind = 'ginkgo';
+    else if (r < 0.44) kind = 'maple';
+    else if (r < 0.50) kind = 'willow';
+    else if (r < 0.74) kind = 'broad';
+    else kind = 'round';
     return {
       x, y, kind,
-      s: 1.0 + rng() * 0.95,
+      s: 0.85 + rng() * 1.15,
       tone: (rng() * 4) | 0,
       flip: rng() > 0.5,
+      seed: (rng() * 65535) | 0,
     };
+  }
+
+  _nearWater(x, y, pad = 14) {
+    for (const w of this.water) {
+      if (x < w.bbox[0] - pad || x > w.bbox[2] + pad || y < w.bbox[1] - pad || y > w.bbox[3] + pad) continue;
+      for (const ring of w.rings) if (pointInPoly(x, y, ring)) return true;
+      // 岸边一圈也算
+      for (const ring of w.rings) {
+        for (let i = 0; i < ring.length - 2; i += 2) {
+          if (distToSeg(x, y, ring[i], ring[i + 1], ring[i + 2], ring[i + 3]) < pad) return true;
+        }
+      }
+    }
+    return false;
   }
 
   // ---------- 查询 ----------

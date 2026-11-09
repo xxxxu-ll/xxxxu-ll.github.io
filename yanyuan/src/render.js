@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090638';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090726';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -83,6 +83,8 @@ export class Ground {
     this.cache = new Map();
     this.maxCache = 90;
     this.pattern = null;
+    this.wetBases = world.buildings.filter(b => (b.wetRatio || 0) > 0.3);
+
     // 道路预处理：端头延长 + 标记与其它路相接的端点（路口）
     for (const r of world.roads) r._pts = extendEnds(r.pts, Math.min(1.3, r.w * 0.55));
     for (const r of world.roads) {
@@ -121,18 +123,20 @@ export class Ground {
     const rng = mulberry32(9182);
     g.fillStyle = P.grass[0];
     g.fillRect(0, 0, 24, 24);
-    // 稀疏的深浅斑点（保持安静，只在放大后看得出颗粒）
-    for (let i = 0; i < 34; i++) {
+    // 深浅斑点
+    for (let i = 0; i < 58; i++) {
       const x = (rng() * 24) | 0, y = (rng() * 24) | 0;
-      g.fillStyle = rng() < 0.5 ? P.grass[1] : P.grass[2];
-      g.fillRect(x, y, 2, 1);
+      const r = rng();
+      g.fillStyle = r < 0.42 ? P.grass[1] : r < 0.78 ? P.grass[2] : 'rgba(232,244,178,.35)';
+      g.fillRect(x, y, r < 0.3 ? 2 : 1, 1);
     }
-    // 少量草簇
-    for (let i = 0; i < 5; i++) {
-      const x = (rng() * 22) | 0, y = (rng() * 22) | 0;
+    // 草簇：两三根一起，高低不一
+    for (let i = 0; i < 11; i++) {
+      const x = (rng() * 22) | 0, y = (rng() * 21) | 0;
       g.fillStyle = P.grass[3];
-      g.fillRect(x, y, 1, 2);
+      g.fillRect(x, y, 1, 2 + ((rng() * 2) | 0));
       g.fillRect(x + 1, y + 1, 1, 1);
+      if (rng() < 0.4) g.fillRect(x + 2, y + ((rng() * 2) | 0), 1, 1);
     }
     this._tile = c;
     return c;
@@ -181,12 +185,72 @@ export class Ground {
       g.fill();
     }
 
+    // 草叶、三叶草、野花：让大片草地不是纯色
+    {
+      const drng = mulberry32((cx * 3571) ^ (cy * 6151) ^ 0x9e37);
+      const marks = 90;
+      for (let i = 0; i < marks; i++) {
+        const mx = w0 + drng() * this.chunkM;
+        const my = h0 + drng() * this.chunkM;
+        const r = drng();
+        if (r < 0.66) {
+          g.fillStyle = drng() < 0.55 ? 'rgba(56,100,32,.30)' : 'rgba(132,176,70,.32)';
+          g.fillRect(mx, my, 0.5, 0.75);
+        } else if (r < 0.9) {
+          g.fillStyle = 'rgba(150,192,88,.28)';
+          g.fillRect(mx, my, 0.75, 0.5);
+        } else {
+          g.fillStyle = drng() < 0.55 ? 'rgba(250,250,224,.8)' : 'rgba(246,214,104,.8)';
+          g.fillRect(mx, my, 0.5, 0.5);
+        }
+      }
+      // 两小丛三叶草
+      for (let i = 0; i < 2; i++) {
+        const mx = w0 + drng() * this.chunkM, my = h0 + drng() * this.chunkM;
+        g.fillStyle = 'rgba(74,124,44,.30)';
+        for (let k = 0; k < 4; k++) g.fillRect(mx + drng() * 2.2, my + drng() * 1.6, 0.6, 0.6);
+      }
+    }
+
     // 绿地（更深的草坪）
     for (const lc of this.world.landcover) {
       if (!hit(lc.bbox, x0, y0, x1, y1)) continue;
       g.beginPath(); poly(g, lc.ring);
       g.fillStyle = lc.wooded ? '#5d8a34' : P.lawn;
       g.fill();
+      g.save();
+      g.clip();
+      // 割草条纹 + 草叶 + 野花
+      const lrng = mulberry32((Math.round(lc.bbox[0]) * 2654435761 ^ Math.round(lc.bbox[1]) * 97) >>> 0);
+      const lw = lc.bbox[2] - lc.bbox[0], lh = lc.bbox[3] - lc.bbox[1];
+      if (lw * lh > 300) {
+        const band = 7;
+        g.fillStyle = 'rgba(255,255,190,.055)';
+        for (let yy = lc.bbox[1] - lw; yy < lc.bbox[3] + lw; yy += band * 2) {
+          g.save();
+          g.translate(0, yy);
+          g.rotate(-0.5);
+          g.fillRect(-lw * 2, 0, lw * 4, band);
+          g.restore();
+        }
+      }
+      const tufts = Math.min(90, Math.round((lw * lh) / 220));
+      for (let i = 0; i < tufts; i++) {
+        const tx = lc.bbox[0] + lrng() * lw;
+        const ty = lc.bbox[1] + lrng() * lh;
+        const r = lrng();
+        if (r < 0.6) {
+          g.fillStyle = lrng() < 0.5 ? 'rgba(58,104,34,.45)' : 'rgba(126,168,66,.42)';
+          g.fillRect(tx, ty, 0.5, 1.1);
+        } else if (r < 0.88) {
+          g.fillStyle = 'rgba(150,190,86,.35)';
+          g.fillRect(tx, ty, 1, 0.5);
+        } else {
+          g.fillStyle = lrng() < 0.5 ? 'rgba(250,250,220,.75)' : 'rgba(244,214,110,.75)';
+          g.fillRect(tx, ty, 0.5, 0.5);
+        }
+      }
+      g.restore();
       g.strokeStyle = 'rgba(70,110,36,.35)';
       g.lineWidth = 0.5;
       g.stroke();
@@ -215,6 +279,20 @@ export class Ground {
     for (const w of this.world.water) {
       if (!hit(w.bbox, x0, y0, x1, y1)) continue;
       for (const ring of w.rings) drawWater(g, ring, w.name);
+    }
+
+    // 水上建筑的石台（避免看起来漂在水里）
+    for (const b of this.wetBases) {
+      if (!hit(b.bbox, x0, y0, x1, y1)) continue;
+      g.beginPath();
+      for (const poly2 of b.polys) for (const ring of poly2) poly(g, ring);
+      g.strokeStyle = '#a9a294';
+      g.lineWidth = 5;
+      g.lineJoin = 'round';
+      g.stroke();
+      g.strokeStyle = '#8b8478';
+      g.lineWidth = 1.2;
+      g.stroke();
     }
 
     // 桥面：道路跨水时先铺一层石桥，再让路压在上面
@@ -313,51 +391,212 @@ function stampPaving(g, ring) {
   g.restore();
 }
 
+// ---------- 体育场地 ----------
+function stadiumPath(g, cx, cy, half, r, horiz) {
+  g.beginPath();
+  if (horiz) {
+    g.moveTo(cx - half, cy - r);
+    g.lineTo(cx + half, cy - r);
+    g.arc(cx + half, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    g.lineTo(cx - half, cy + r);
+    g.arc(cx - half, cy, r, Math.PI / 2, Math.PI * 1.5, false);
+  } else {
+    g.moveTo(cx + r, cy - half);
+    g.lineTo(cx + r, cy + half);
+    g.arc(cx, cy + half, r, 0, Math.PI, false);
+    g.lineTo(cx - r, cy - half);
+    g.arc(cx, cy - half, r, Math.PI, Math.PI * 2, false);
+  }
+  g.closePath();
+}
+
+/** 足球场：割草条纹 + 标准线 */
+function drawPitch(g, x, y, w, h, horiz = true) {
+  const long = horiz ? w : h, short = horiz ? h : w;
+  // 条纹
+  const stripe = Math.max(3, long / 12);
+  for (let i = 0, n = Math.ceil(long / stripe); i < n; i++) {
+    g.fillStyle = i % 2 ? '#5c9a3f' : '#68a948';
+    if (horiz) g.fillRect(x + i * stripe, y, stripe, h);
+    else g.fillRect(x, y + i * stripe, w, stripe);
+  }
+  g.strokeStyle = 'rgba(255,255,255,.72)';
+  g.lineWidth = 0.32;
+  const m = Math.min(1.5, short * 0.03);        // 边线内缩
+  g.strokeRect(x + m, y + m, w - m * 2, h - m * 2);
+  const cx = x + w / 2, cy = y + h / 2;
+  // 中线 + 中圈
+  if (horiz) {
+    g.beginPath(); g.moveTo(cx, y + m); g.lineTo(cx, y + h - m); g.stroke();
+  } else {
+    g.beginPath(); g.moveTo(x + m, cy); g.lineTo(x + w - m, cy); g.stroke();
+  }
+  const R = Math.min(9.15, short * 0.15);
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,.6)';
+  g.fillRect(cx - 0.25, cy - 0.25, 0.5, 0.5);
+  // 禁区
+  const boxD = Math.min(16.5, long * 0.16);
+  const boxW = Math.min(40.3, short * 0.62);
+  for (const side of [-1, 1]) {
+    const bx = horiz ? (side < 0 ? x + m : x + w - m - boxD) : cx - boxW / 2;
+    const by = horiz ? cy - boxW / 2 : (side < 0 ? y + m : y + h - m - boxD);
+    g.strokeRect(bx, by, horiz ? boxD : boxW, horiz ? boxW : boxD);
+    // 球门
+    const gw = Math.min(7.32, boxW * 0.28);
+    g.strokeStyle = 'rgba(255,255,255,.9)';
+    g.lineWidth = 0.45;
+    if (horiz) {
+      const gx = side < 0 ? x + m : x + w - m;
+      g.beginPath();
+      g.moveTo(gx, cy - gw / 2);
+      g.lineTo(gx + side * 1.8, cy - gw / 2);
+      g.moveTo(gx, cy + gw / 2);
+      g.lineTo(gx + side * 1.8, cy + gw / 2);
+      g.stroke();
+    } else {
+      const gy = side < 0 ? y + m : y + h - m;
+      g.beginPath();
+      g.moveTo(cx - gw / 2, gy);
+      g.lineTo(cx - gw / 2, gy + side * 1.8);
+      g.moveTo(cx + gw / 2, gy);
+      g.lineTo(cx + gw / 2, gy + side * 1.8);
+      g.stroke();
+    }
+    g.strokeStyle = 'rgba(255,255,255,.72)';
+    g.lineWidth = 0.32;
+  }
+}
+
+function drawTrack(g, bb, vert) {
+  const W = bb[2] - bb[0], H = bb[3] - bb[1];
+  const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+  const short = vert ? W : H;
+  const long = vert ? H : W;
+  const r = short / 2;
+  const half = Math.max(4, long / 2 - r);
+  const trackW = Math.min(9.2, short * 0.085);
+  // 场外草地
+  g.fillStyle = '#5c9640';
+  g.fillRect(bb[0], bb[1], W, H);
+  // 跑道红色
+  g.fillStyle = '#b1533a';
+  stadiumPath(g, cx, cy, half, r, !vert);
+  g.fill();
+  // 内圈草坪
+  g.fillStyle = '#5d9a41';
+  stadiumPath(g, cx, cy, half, r - trackW, !vert);
+  g.fill();
+  // 分道线
+  const lanes = 8;
+  g.strokeStyle = 'rgba(255,255,255,.55)';
+  for (let i = 0; i <= lanes; i++) {
+    const rr = r - (i / lanes) * trackW;
+    g.lineWidth = i === 0 || i === lanes ? 0.42 : 0.2;
+    stadiumPath(g, cx, cy, half, Math.max(1, rr), !vert);
+    g.stroke();
+  }
+  // 内场足球场
+  const fw = vert ? (r - trackW) * 2 : half * 2;
+  const fh = vert ? half * 2 : (r - trackW) * 2;
+  if (fw > 30 && fh > 20) {
+    drawPitch(g, cx - fw / 2 + 1.5, cy - fh / 2 + 1.5, fw - 3, fh - 3, !vert);
+  }
+}
+
+/** 一片片小场地（篮球/网球/排球） */
+function drawCourts(g, bb, cols, rows, kind) {
+  const W = bb[2] - bb[0], H = bb[3] - bb[1];
+  const cw = W / cols, ch = H / rows;
+  const base = kind === 'basketball' ? '#4d7b90' : kind === 'tennis' ? '#3f7a63' : '#b8863f';
+  g.fillStyle = base;
+  g.fillRect(bb[0], bb[1], W, H);
+  const line = 'rgba(255,255,255,.62)';
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const x = bb[0] + i * cw, y = bb[1] + j * ch;
+      g.fillStyle = (i + j) % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)';
+      g.fillRect(x + 0.6, y + 0.6, cw - 1.2, ch - 1.2);
+      g.strokeStyle = line;
+      g.lineWidth = 0.28;
+      g.strokeRect(x + 1.4, y + 1.4, cw - 2.8, ch - 2.8);
+      const mx = x + cw / 2, my = y + ch / 2;
+      if (kind === 'basketball') {
+        // 中线 + 中圈 + 两端禁区
+        g.beginPath(); g.moveTo(mx, y + 1.4); g.lineTo(mx, y + ch - 1.4); g.stroke();
+        g.beginPath(); g.arc(mx, my, Math.min(cw, ch) * 0.11, 0, Math.PI * 2); g.stroke();
+        for (const s2 of [-1, 1]) {
+          const ky = my + s2 * (ch / 2 - 1.4) * 0.52;
+          g.strokeRect(mx - cw * 0.16, s2 < 0 ? y + 1.4 : my + ch * 0.22, cw * 0.32, ch * 0.26);
+        }
+        // 篮筐
+        g.fillStyle = 'rgba(250,250,240,.85)';
+        g.fillRect(mx - 0.4, y + 2.2, 0.8, 0.8);
+        g.fillRect(mx - 0.4, y + ch - 3.0, 0.8, 0.8);
+      } else if (kind === 'tennis') {
+        // 网 + 发球区
+        g.beginPath(); g.moveTo(x + 1.4, my); g.lineTo(x + cw - 1.4, my); g.stroke();
+        g.beginPath(); g.moveTo(x + cw * 0.3, my - ch * 0.2); g.lineTo(x + cw * 0.7, my - ch * 0.2); g.stroke();
+        g.beginPath(); g.moveTo(x + cw * 0.3, my + ch * 0.2); g.lineTo(x + cw * 0.7, my + ch * 0.2); g.stroke();
+        g.beginPath(); g.moveTo(mx, my - ch * 0.2); g.lineTo(mx, my + ch * 0.2); g.stroke();
+      } else {
+        // 排球：中线 + 三米线
+        g.beginPath(); g.moveTo(mx, y + 1.4); g.lineTo(mx, y + ch - 1.4); g.stroke();
+        g.beginPath(); g.moveTo(mx - cw * 0.16, y + 1.4); g.lineTo(mx - cw * 0.16, y + ch - 1.4); g.stroke();
+        g.beginPath(); g.moveTo(mx + cw * 0.16, y + 1.4); g.lineTo(mx + cw * 0.16, y + ch - 1.4); g.stroke();
+      }
+    }
+  }
+}
+
 function drawSport(g, s) {
   const sp = (s.sport || '').toLowerCase();
-  let base = '#6f9a4a', line = 'rgba(255,255,255,.5)';
-  if (sp === 'running' || sp === 'athletics') base = '#b45a42';
-  else if (sp === 'tennis') base = '#4d7f6c';
-  else if (sp === 'basketball') base = '#94694a';
-  else if (sp === 'volleyball') base = '#b0893f';
-  else if (sp === 'soccer') base = '#5f9a44';
-  else if (sp === 'climbing') base = '#8a8578';
-  g.beginPath(); poly(g, s.ring);
-  g.fillStyle = base; g.fill();
   const bb = polyBBox(s.ring);
+  const W = bb[2] - bb[0], H = bb[3] - bb[1];
   g.save();
   g.beginPath(); poly(g, s.ring); g.clip();
-  g.strokeStyle = line; g.lineWidth = 0.3;
-  if (sp === 'running' || sp === 'athletics') {
-    // 跑道：内场草坪 + 每 1.2m 一道分道线 + 白色内沿
-    const trackW = 8;
-    g.fillStyle = '#5f9a44';
-    g.fillRect(bb[0] + trackW, bb[1] + trackW, bb[2] - bb[0] - trackW * 2, bb[3] - bb[1] - trackW * 2);
-    g.strokeStyle = 'rgba(255,255,255,.5)';
-    for (let i = 0; i <= 6; i++) {
-      const inset = trackW - i * 1.2;
-      if (inset < 0) break;
-      g.lineWidth = i === 0 ? 0.45 : 0.22;
-      g.strokeRect(bb[0] + inset, bb[1] + inset, bb[2] - bb[0] - inset * 2, bb[3] - bb[1] - inset * 2);
-    }
-    g.strokeStyle = 'rgba(255,255,255,.35)';
-    g.lineWidth = 0.3;
-    g.strokeRect(bb[0] + trackW, bb[1] + trackW, bb[2] - bb[0] - trackW * 2, bb[3] - bb[1] - trackW * 2);
-  } else if (sp === 'basketball' || sp === 'tennis' || sp === 'volleyball') {
-    g.beginPath();
-    g.moveTo((bb[0] + bb[2]) / 2, bb[1]); g.lineTo((bb[0] + bb[2]) / 2, bb[3]); g.stroke();
-    g.beginPath();
-    g.arc((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.min(bb[2] - bb[0], bb[3] - bb[1]) * 0.18, 0, Math.PI * 2);
-    g.stroke();
+
+  if (sp === 'running' || sp === 'athletics' || sp === 'multi') {
+    drawTrack(g, bb, H > W);
   } else if (sp === 'soccer') {
-    g.strokeRect(bb[0] + 1.5, bb[1] + 1.5, bb[2] - bb[0] - 3, bb[3] - bb[1] - 3);
+    g.fillStyle = '#5f9a44';
+    g.fillRect(bb[0], bb[1], W, H);
+    drawPitch(g, bb[0] + 2, bb[1] + 2, W - 4, H - 4, W >= H);
+  } else if (sp === 'basketball') {
+    const cols = Math.max(1, Math.round(Math.max(W, H) / 28));
+    const rows = Math.max(1, Math.round(Math.min(W, H) / 16));
+    drawCourts(g, bb, W >= H ? cols : rows, W >= H ? rows : cols, 'basketball');
+  } else if (sp === 'tennis') {
+    const cols = Math.max(1, Math.round(Math.max(W, H) / 24));
+    const rows = Math.max(1, Math.round(Math.min(W, H) / 12));
+    drawCourts(g, bb, W >= H ? cols : rows, W >= H ? rows : cols, 'tennis');
+  } else if (sp === 'volleyball') {
+    const cols = Math.max(1, Math.round(Math.max(W, H) / 20));
+    const rows = Math.max(1, Math.round(Math.min(W, H) / 10));
+    drawCourts(g, bb, W >= H ? cols : rows, W >= H ? rows : cols, 'volleyball');
+  } else if (sp === 'climbing') {
+    g.fillStyle = '#8f8a7c';
+    g.fillRect(bb[0], bb[1], W, H);
+    g.fillStyle = 'rgba(60,58,50,.35)';
+    g.fillRect(bb[0] + W * 0.12, bb[1] + H * 0.18, W * 0.76, H * 0.64);
+    const rng = mulberry32((Math.round(bb[0]) * 13 + Math.round(bb[1]) * 7) | 0);
+    const holds = ['#d4753f', '#e0b04a', '#4f8ec4', '#c9534a'];
+    for (let i = 0; i < 22; i++) {
+      g.fillStyle = holds[(rng() * holds.length) | 0];
+      g.fillRect(bb[0] + W * 0.16 + rng() * W * 0.68, bb[1] + H * 0.22 + rng() * H * 0.56, 0.9, 0.9);
+    }
+  } else {
+    g.fillStyle = '#6f9a4a';
+    g.fillRect(bb[0], bb[1], W, H);
+    g.strokeStyle = 'rgba(255,255,255,.5)';
+    g.lineWidth = 0.3;
+    g.strokeRect(bb[0] + 2, bb[1] + 2, W - 4, H - 4);
   }
   g.restore();
   g.strokeStyle = 'rgba(60,70,55,.4)';
   g.lineWidth = 0.4;
   g.beginPath(); poly(g, s.ring); g.stroke();
 }
-
 function drawWater(g, ring, name) {
   const bb = polyBBox(ring);
   // 石砌驳岸
@@ -1067,61 +1306,108 @@ function pixelDisc(ctx, cx, cy, r, color) {
   }
 }
 
+// 树种配色（同一棵树在 4 组色里取一组，避免整片同色）
+const SPECIES = {
+  round:   { tones: [['#4f8a3a', '#6fae4c', '#3c7030'], ['#558f3e', '#75b452', '#3f7533'], ['#487f36', '#67a646', '#36672c'], ['#5c9442', '#7cb856', '#447a37']] },
+  broad:   { tones: [['#467f34', '#66a544', '#35622b'], ['#4d8839', '#6dae4c', '#396a2f'], ['#427a31', '#61a041', '#315c28'], ['#518c3c', '#72b250', '#3b6d31']] },
+  pine:    { tones: [['#2f6a3e', '#3f7f4b', '#245431'], ['#2b6339', '#387645', '#204d2c'], ['#336f42', '#438550', '#275a35'], ['#2e6740', '#3d7c4c', '#224f30']] },
+  cypress: { tones: [['#2c5f38', '#3a7545', '#214a2b'], ['#2a5b35', '#376f41', '#1e4427'], ['#31653c', '#3f7a49', '#24502e'], ['#2d6139', '#3b7646', '#224c2d']] },
+  willow:  { tones: [['#5f9440', '#82b455', '#4a7a33'], ['#67a047', '#8cbe5c', '#517f38'], ['#588c3c', '#79ad51', '#446f2f'], ['#6aa54b', '#90c260', '#54833b']] },
+  ginkgo:  { tones: [['#7fa63a', '#a3c554', '#64852d'], ['#89b040', '#aecf5e', '#6b8c31'], ['#76a137', '#9bc04e', '#5d7f2a'], ['#93b845', '#b8d766', '#749434']] },
+  maple:   { tones: [['#8f5f3c', '#a87a4a', '#6f4630'], ['#4f8338', '#6fa84a', '#3a652a'], ['#9a6a42', '#b58954', '#7a5033'], ['#578c3c', '#77b250', '#3e6d2f']] },
+  bush:    { tones: [['#3f7a33', '#58983f', '#2f5d27'], ['#45822f', '#5da03c', '#335f24'], ['#3a7230', '#52913c', '#2b5523'], ['#4a8836', '#63a544', '#375f28']] },
+};
+
 export function drawTree(ctx, t, cam) {
   const x = Math.round(cam.sx(t.x));
   const y = Math.round(cam.sy(t.y));
   const s = t.s * cam.zoom;
-  const tone = FOLIAGE[t.tone % FOLIAGE.length];
+  const sp = SPECIES[t.kind] || SPECIES.round;
+  const tone = sp.tones[t.tone % sp.tones.length];
 
   // 硬边投影
   ctx.fillStyle = 'rgba(36,46,30,.20)';
-  const rs = Math.max(2, Math.round(5 * s));
+  const rs = Math.max(2, Math.round((t.kind === 'bush' ? 2.6 : 5) * s));
   for (let dy = -1; dy <= 1; dy++) {
     const w = Math.round(rs * Math.cos(dy / 3));
-    ctx.fillRect(x + 2 + -w, y + 1 + dy * 1.4, w * 2, 1);
+    ctx.fillRect(x + 2 - w, y + 1 + dy * 1.4, w * 2, 1);
   }
+
+  if (t.kind === 'bush') {
+    pixelDisc(ctx, x, y - 1.4 * s, Math.max(2, Math.round(3.4 * s)), tone[1]);
+    pixelDisc(ctx, x + 2 * s, y - 1.0 * s, Math.max(1, Math.round(2.2 * s)), tone[0]);
+    pixelDisc(ctx, x - 2 * s, y - 0.8 * s, Math.max(1, Math.round(2.0 * s)), tone[2]);
+    return;
+  }
+
   // 树干
   ctx.fillStyle = '#5d4130';
-  ctx.fillRect(x - 1, y - Math.round(3 * s), 2, Math.max(2, Math.round(4 * s)));
+  const trunkH = t.kind === 'cypress' || t.kind === 'pine' ? 2 : 4;
+  ctx.fillRect(x - 1, y - Math.round(3 * s), 2, Math.max(2, Math.round(trunkH * s)));
 
   if (t.kind === 'pine') {
     for (let i = 0; i < 3; i++) {
-      const w = Math.round((4.6 - i * 1.2) * s);
-      const yy = Math.round(y - (3 + i * 3.2) * s);
+      const w = Math.round((4.8 - i * 1.25) * s);
+      const yy = Math.round(y - (3 + i * 3.1) * s);
       ctx.fillStyle = i === 0 ? tone[2] : i === 1 ? tone[0] : tone[1];
       ctx.fillRect(x - w, yy, w * 2, Math.max(1, Math.round(2.6 * s)));
-      ctx.fillRect(x - Math.round(w * 0.6), yy - 1, Math.round(w * 1.2), 1);
+      ctx.fillRect(x - Math.round(w * 0.62), yy - 1, Math.round(w * 1.24), 1);
     }
     ctx.fillStyle = tone[2];
     ctx.fillRect(x - 1, Math.round(y - 13 * s), 2, Math.max(1, Math.round(1.6 * s)));
+  } else if (t.kind === 'cypress') {
+    // 柏：细高的塔形
+    for (let i = 0; i < 5; i++) {
+      const w = Math.round((3.6 - i * 0.62) * s);
+      const yy = Math.round(y - (3.4 + i * 2.4) * s);
+      ctx.fillStyle = i % 2 ? tone[0] : tone[1];
+      ctx.fillRect(x - w, yy, w * 2, Math.max(1, Math.round(2.4 * s)));
+    }
+    ctx.fillStyle = tone[2];
+    ctx.fillRect(x - Math.round(1.4 * s), Math.round(y - 3.4 * s), Math.max(2, Math.round(2.8 * s)), Math.max(2, Math.round(2.4 * s)));
   } else if (t.kind === 'willow') {
-    const r = Math.round(5.4 * s);
+    const r = Math.round(5.6 * s);
     pixelDisc(ctx, x, y - 6 * s, r, tone[0]);
     pixelDisc(ctx, x - r * 0.25, y - 7 * s, r * 0.7, tone[1]);
     ctx.fillStyle = tone[1];
     for (let i = -3; i <= 3; i++) {
-      const dx = Math.round(i * 1.6 * s);
-      ctx.fillRect(x + dx, Math.round(y - 4 * s), 1, Math.round(3.4 * s));
-      ctx.fillRect(x + dx + (i > 0 ? 1 : -1), Math.round(y - 1.4 * s), 1, Math.round(1.4 * s));
+      const dx = Math.round(i * 1.7 * s);
+      ctx.fillRect(x + dx, Math.round(y - 4 * s), 1, Math.round(3.8 * s));
+      ctx.fillRect(x + dx + (i > 0 ? 1 : -1), Math.round(y - 1.2 * s), 1, Math.round(1.6 * s));
+    }
+  } else if (t.kind === 'ginkgo') {
+    // 银杏：扇形树冠，偏黄绿
+    const r = Math.round(7.8 * s);
+    pixelDisc(ctx, x, y - 6.0 * s, r, tone[2]);
+    pixelDisc(ctx, x - r * 0.22, y - 7.0 * s, r * 0.86, tone[0]);
+    pixelDisc(ctx, x + r * 0.5, y - 5.2 * s, r * 0.5, tone[1]);
+    pixelDisc(ctx, x - r * 0.55, y - 5.0 * s, r * 0.44, tone[1]);
+    ctx.fillStyle = 'rgba(250,250,190,.30)';
+    ctx.fillRect(Math.round(x - r * 0.5), Math.round(y - 10.2 * s), Math.max(1, Math.round(r * 0.5)), 1);
+  } else if (t.kind === 'maple') {
+    // 枫：冠更碎，轮廓带尖
+    const r = Math.round(7.2 * s);
+    pixelDisc(ctx, x, y - 6.2 * s, r, tone[2]);
+    pixelDisc(ctx, x - r * 0.2, y - 7.2 * s, r * 0.8, tone[0]);
+    pixelDisc(ctx, x + r * 0.55, y - 5.4 * s, r * 0.46, tone[1]);
+    pixelDisc(ctx, x - r * 0.6, y - 5.0 * s, r * 0.42, tone[1]);
+    ctx.fillStyle = tone[0];
+    for (let i = -2; i <= 2; i++) {
+      ctx.fillRect(Math.round(x + i * r * 0.42), Math.round(y - 11.4 * s), 1, Math.max(1, Math.round(1.6 * s)));
     }
   } else {
     const r = (t.kind === 'round' ? 7.4 : 8.6) * s;
-    // 主冠
     pixelDisc(ctx, x, y - 6.4 * s, r, tone[2]);
     pixelDisc(ctx, x - r * 0.18, y - 7.4 * s, r * 0.84, tone[0]);
-    // 侧冠，打散"棒棒糖"轮廓
     pixelDisc(ctx, x + r * 0.62, y - 5.0 * s, r * 0.52, tone[2]);
     pixelDisc(ctx, x - r * 0.66, y - 4.6 * s, r * 0.46, tone[0]);
-    // 顶部亮面
     pixelDisc(ctx, x - r * 0.3, y - 9.2 * s, r * 0.44, tone[1]);
     ctx.fillStyle = 'rgba(244,248,206,.34)';
     ctx.fillRect(Math.round(x - r * 0.55), Math.round(y - 10 * s), Math.max(1, Math.round(r * 0.36)), 1);
-    // 边缘暗线
     ctx.fillStyle = 'rgba(28,40,24,.18)';
     ctx.fillRect(Math.round(x - r), Math.round(y - 3.2 * s), Math.round(r * 2), 1);
   }
 }
-
 // ---------------- 水面动效 ----------------
 export function drawWaterAnim(ctx, world, cam, time) {
   const [vx0, vy0, vx1, vy1] = cam.viewRect(0);
