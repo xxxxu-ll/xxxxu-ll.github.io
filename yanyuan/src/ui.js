@@ -1,7 +1,7 @@
 // 界面层：HUD、提示、聊天、手册、弹窗
-import { escapeHtml, pad2 } from './util.js?v=202611090557';
-import { ACHIEVEMENTS } from './progress.js?v=202611090557';
-import { affinityLabel, AFF } from './cats.js?v=202611090557';
+import { escapeHtml, pad2 } from './util.js?v=202611090602';
+import { ACHIEVEMENTS } from './progress.js?v=202611090602';
+import { affinityLabel, AFF, HABIT_TEXT, catAwake } from './cats.js?v=202611090602';
 
 const $ = (id) => document.getElementById(id);
 
@@ -138,8 +138,16 @@ export function renderJournal(world, progress) {
       const c = world.__cats ? world.__cats.find(x => x.id === id) : null;
       const name = c ? c.name : id;
       const aff = st.a || 0;
+      const hour = new Date().getHours() + new Date().getMinutes() / 60;
+      const around = c ? catAwake(c.def, hour) : true;
+      const habit = c ? (HABIT_TEXT[c.def.habit] || '') : '';
       const li = document.createElement('li');
-      li.innerHTML = `<span><b>${escapeHtml(name)}</b> <span class="muted small">${escapeHtml(affinityLabel(aff))}</span></span>` +
+      li.innerHTML = `<span style="min-width:0">
+          <b>${escapeHtml(name)}</b>
+          <span class="muted small">${escapeHtml(affinityLabel(aff))}</span>
+          ${around ? '' : '<span class="small tag-away">此刻不在</span>'}
+          ${habit ? `<br><span class="small muted">${escapeHtml(habit)}</span>` : ''}
+        </span>` +
         `<span class="aff">${aff}/100${st.f ? ' · 跟随中' : ''}</span>`;
       catList.appendChild(li);
     }

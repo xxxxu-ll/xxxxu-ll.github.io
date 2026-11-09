@@ -1,6 +1,6 @@
 // 玩家进度：探索记录、校园猫关系、成就、物品、统计
-import { clamp } from './util.js?v=202611090557';
-import { AFF } from './cats.js?v=202611090557';
+import { clamp } from './util.js?v=202611090602';
+import { AFF } from './cats.js?v=202611090602';
 
 export function defaultProgress() {
   return {

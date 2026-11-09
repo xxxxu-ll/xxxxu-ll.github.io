@@ -1,7 +1,7 @@
 // 拍照：把当前画面连同一枚校园印章保存为 PNG
-import { pad2 } from './util.js?v=202611090557';
+import { pad2 } from './util.js?v=202611090602';
 
-export function capturePhoto(sourceCanvas, { place = '燕园', name = '', date = new Date(), cat = null } = {}) {
+export function capturePhoto(sourceCanvas, { place = '燕园', name = '', date = new Date(), cat = null, withName = null } = {}) {
   const src = sourceCanvas;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   // 以较小边为基准输出，控制体积
@@ -51,6 +51,13 @@ export function capturePhoto(sourceCanvas, { place = '燕园', name = '', date =
   g.fillText('像素', sx + seal / 2, sy + seal * 0.44);
   g.fillText('燕园', sx + seal / 2, sy + seal * 0.80);
   g.restore();
+
+  if (withName) {
+    g.font = `600 ${Math.round(fs * 0.74)}px "PingFang SC","Microsoft YaHei",sans-serif`;
+    g.fillStyle = 'rgba(253,250,243,.9)';
+    g.textAlign = 'left';
+    g.fillText('与 ' + withName + ' 一起', barH * 0.45 + g.measureText(title).width + fs * 1.2, h - barH * 0.52);
+  }
 
   if (cat) {
     g.font = `600 ${Math.round(fs * 0.74)}px "PingFang SC","Microsoft YaHei",sans-serif`;
