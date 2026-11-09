@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox } from './util.js?v=202611090602';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox } from './util.js?v=202611090615';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -269,10 +269,20 @@ function drawSport(g, s) {
   g.beginPath(); poly(g, s.ring); g.clip();
   g.strokeStyle = line; g.lineWidth = 0.3;
   if (sp === 'running' || sp === 'athletics') {
-    for (let i = 1; i <= 4; i++) {
-      const inset = (bb[2] - bb[0]) * 0.06 * i;
+    // 跑道：内场草坪 + 每 1.2m 一道分道线 + 白色内沿
+    const trackW = 8;
+    g.fillStyle = '#5f9a44';
+    g.fillRect(bb[0] + trackW, bb[1] + trackW, bb[2] - bb[0] - trackW * 2, bb[3] - bb[1] - trackW * 2);
+    g.strokeStyle = 'rgba(255,255,255,.5)';
+    for (let i = 0; i <= 6; i++) {
+      const inset = trackW - i * 1.2;
+      if (inset < 0) break;
+      g.lineWidth = i === 0 ? 0.45 : 0.22;
       g.strokeRect(bb[0] + inset, bb[1] + inset, bb[2] - bb[0] - inset * 2, bb[3] - bb[1] - inset * 2);
     }
+    g.strokeStyle = 'rgba(255,255,255,.35)';
+    g.lineWidth = 0.3;
+    g.strokeRect(bb[0] + trackW, bb[1] + trackW, bb[2] - bb[0] - trackW * 2, bb[3] - bb[1] - trackW * 2);
   } else if (sp === 'basketball' || sp === 'tennis' || sp === 'volleyball') {
     g.beginPath();
     g.moveTo((bb[0] + bb[2]) / 2, bb[1]); g.lineTo((bb[0] + bb[2]) / 2, bb[3]); g.stroke();
@@ -345,46 +355,139 @@ function drawWater(g, ring, name) {
   }
 }
 
+// ---------- 道路：碎边 + 颗粒 + 宽窄起伏 ----------
+const ROAD_STYLE = {
+  footway:     { core: '#c2b493', edge: '#ab9d7d', speck: ['#bfb08d', '#d8cbaa', '#a89a78'], kind: 'path' },
+  path:        { core: '#bcae8e', edge: '#a2947a', speck: ['#b5a685', '#cfc2a2', '#9d8f72'], kind: 'path' },
+  steps:       { core: '#c4c0b2', edge: '#a29e90', speck: ['#b6b2a4', '#d2cec0'], kind: 'steps' },
+  service:     { core: '#8f8f89', edge: '#75756f', speck: ['#9b9b95', '#81817b', '#a2a29c'], kind: 'asphalt' },
+  residential: { core: '#888882', edge: '#6e6e68', speck: ['#94948e', '#7a7a74'], kind: 'asphalt' },
+  cycleway:    { core: '#a8806a', edge: '#8a6450', speck: ['#b28a74', '#9a7460'], kind: 'path' },
+  pedestrian:  { core: '#c5b89b', edge: '#a89a7e', speck: ['#bcae90', '#cfc3a6'], kind: 'path' },
+};
+
+/** 把折线切成短段（每段独立宽度，制造自然起伏） */
+function roadPieces(pts, seg = 5) {
+  const out = [];
+  for (let i = 0; i < pts.length - 2; i += 2) {
+    const ax = pts[i], ay = pts[i + 1], bx = pts[i + 2], by = pts[i + 3];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 0.05) continue;
+    const n = Math.max(1, Math.round(len / seg));
+    for (let k = 0; k < n; k++) {
+      const t0 = k / n, t1 = (k + 1) / n;
+      out.push([
+        ax + (bx - ax) * t0, ay + (by - ay) * t0,
+        ax + (bx - ax) * t1, ay + (by - ay) * t1,
+      ]);
+    }
+  }
+  return out;
+}
+
 function drawRoad(g, r) {
+  const st = ROAD_STYLE[r.kind] || ROAD_STYLE.footway;
+  const rng = mulberry32(((r.id | 0) * 2654435761 ^ Math.round((r.pts[0] || 0) * 97)) >>> 0);
   const w = r.w;
-  const st = r.kind;
-  let core = P.asphalt, edge = P.asphaltDark;
-  if (st === 'footway') { core = P.path; edge = P.pathEdge; }
-  else if (st === 'path') { core = '#c2b494'; edge = '#a2967a'; }
-  else if (st === 'pedestrian') { core = '#c6b99c'; edge = '#a89a7e'; }
-  else if (st === 'steps') { core = '#bdb9ab'; edge = '#9d998c'; }
-  else if (st === 'cycleway') { core = '#a87f6a'; edge = '#8a6450'; }
-
-  g.lineCap = 'butt';
+  const pieces = roadPieces(r.pts, st.kind === 'path' ? 4 : 6);
+  if (!pieces.length) return;
+  g.lineCap = 'round';
   g.lineJoin = 'round';
-  // 路缘
-  g.beginPath(); traceLine(g, r.pts);
-  g.strokeStyle = edge; g.lineWidth = w + 1.1; g.stroke();
-  // 路面
-  g.beginPath(); traceLine(g, r.pts);
-  g.strokeStyle = core; g.lineWidth = w; g.stroke();
 
-  if (st === 'steps') {
-    g.strokeStyle = 'rgba(90,88,80,.45)'; g.lineWidth = w * 0.9;
-    g.setLineDash([0.7, 0.7]);
+  // 1) 肩部：比路面略宽、极淡，让路和草地过渡
+  g.beginPath(); traceLine(g, r.pts);
+  g.strokeStyle = st.kind === 'asphalt' ? 'rgba(110,110,104,.30)' : 'rgba(120,118,88,.22)';
+  g.lineWidth = w + (st.kind === 'asphalt' ? 1.8 : 1.4);
+  g.stroke();
+
+  // 2) 路面：逐段微调宽度
+  for (const p of pieces) {
+    const jitter = 0.94 + rng() * 0.12;
+    g.beginPath();
+    g.moveTo(p[0], p[1]);
+    g.lineTo(p[2], p[3]);
+    g.strokeStyle = st.core;
+    g.lineWidth = w * jitter;
+    g.stroke();
+  }
+
+  // 3) 颗粒：沿中线撒碎石/沥青斑点
+  const step = st.kind === 'path' ? 1.5 : 0.9;
+  const specs = Math.min(220, Math.round(totalLength(r.pts) / step));
+  let walked = 0;
+  for (let i = 0; i < r.pts.length - 2 && specs > 0; i += 2) {
+    const ax = r.pts[i], ay = r.pts[i + 1], bx = r.pts[i + 2], by = r.pts[i + 3];
+    const len = Math.hypot(bx - ax, by - ay);
+    if (len < 0.05) continue;
+    const nx = -(by - ay) / len, ny = (bx - ax) / len;
+    for (let d = 0; d < len; d += step) {
+      const t = d / len;
+      const cx = ax + (bx - ax) * t, cy = ay + (by - ay) * t;
+      const n = st.kind === 'asphalt' ? 1 : (rng() < 0.45 ? 1 : 0);
+      // 偶尔一块踩旧的路面补丁
+      if (rng() < 0.05) {
+        g.fillStyle = st.kind === 'asphalt' ? 'rgba(120,120,114,.35)' : 'rgba(206,196,168,.45)';
+        g.fillRect(cx - w * 0.25 + (rng() - 0.5) * w * 0.3, cy - 0.6, w * 0.5, 1.2);
+      }
+      for (let k = 0; k < n; k++) {
+        const off = (rng() - 0.5) * w * 0.86;
+        const px = cx + nx * off, py = cy + ny * off;
+        g.fillStyle = st.speck[(rng() * st.speck.length) | 0];
+        g.fillRect(px, py, st.kind === 'asphalt' ? 0.55 : 0.5, 0.5);
+      }
+      // 边缘碎化：把笔直的边打散
+      if (rng() < 0.55) {
+        const side = rng() < 0.5 ? 1 : -1;
+        const off = side * (w * 0.5 + (rng() - 0.3) * 0.55);
+        g.fillStyle = st.kind === 'asphalt' ? 'rgba(120,140,80,.5)' : 'rgba(124,168,66,.55)';
+        g.fillRect(cx + nx * off, cy + ny * off, 0.5, 0.5);
+      }
+    }
+  }
+
+  // 4) 车行道：路缘石（内侧亮线 + 外侧暗线）
+  if (st.kind === 'asphalt' && w >= 3.4) {
+    g.beginPath(); traceLine(g, r.pts);
+    g.strokeStyle = 'rgba(210,208,196,.55)';
+    g.lineWidth = 0.5;
+    g.setLineDash([]);
+    g.stroke();
+  }
+
+  // 5) 标线
+  if (st.kind === 'asphalt' && w >= 4.4) {
+    g.strokeStyle = 'rgba(238,236,224,.8)';
+    g.lineWidth = 0.3;
+    g.setLineDash([2.2, 2.8]);
     g.beginPath(); traceLine(g, r.pts); g.stroke();
     g.setLineDash([]);
-  } else if ((st === 'service' || st === 'residential') && w >= 4.4) {
-    g.strokeStyle = 'rgba(240,238,225,.75)';
-    g.lineWidth = 0.28;
-    g.setLineDash([2.4, 3]);
-    g.beginPath(); traceLine(g, r.pts); g.stroke();
-    g.setLineDash([]);
-  } else if (st === 'footway' || st === 'pedestrian') {
-    // 步道石砖
-    g.strokeStyle = 'rgba(150,138,112,.3)';
-    g.lineWidth = 0.2;
-    g.setLineDash([0.9, 0.9]);
-    g.beginPath(); traceLine(g, r.pts); g.stroke();
-    g.setLineDash([]);
+  } else if (st.kind === 'steps') {
+    // 台阶：横档
+    for (let i = 0; i < r.pts.length - 2; i += 2) {
+      const ax = r.pts[i], ay = r.pts[i + 1], bx = r.pts[i + 2], by = r.pts[i + 3];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 0.05) continue;
+      const nx = -(by - ay) / len, ny = (bx - ax) / len;
+      g.strokeStyle = 'rgba(92,90,82,.45)';
+      g.lineWidth = 0.22;
+      for (let d = 0.6; d < len; d += 0.9) {
+        const cx = ax + (bx - ax) * (d / len), cy = ay + (by - ay) * (d / len);
+        g.beginPath();
+        g.moveTo(cx - nx * w * 0.46, cy - ny * w * 0.46);
+        g.lineTo(cx + nx * w * 0.46, cy + ny * w * 0.46);
+        g.stroke();
+      }
+    }
   }
 }
 
+function totalLength(pts) {
+  let n = 0;
+  for (let i = 0; i < pts.length - 2; i += 2) {
+    n += Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
+  }
+  return n;
+}
 function traceLine(g, pts) {
   g.moveTo(pts[0], pts[1]);
   for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]);
@@ -577,6 +680,11 @@ export function drawBuilding(ctx, b, cam, hour) {
       ctx.fillRect(bb[0] + w * 0.28, bb[1] + h * 0.2, Math.min(9, w * 0.3), Math.min(2.8, h * 0.1));
       ctx.fillStyle = 'rgba(240,250,255,.35)';
       ctx.fillRect(bb[0] + w * 0.28, bb[1] + h * 0.2, Math.min(9, w * 0.3), 0.5);
+    }
+    if (w > 26 || h > 26) {
+      ctx.fillStyle = 'rgba(58,64,60,.10)';
+      for (let x = bb[0] + 8; x < bb[2]; x += 8) ctx.fillRect(x, bb[1], 0.5, h);
+      for (let y = bb[1] + 8; y < bb[3]; y += 8) ctx.fillRect(bb[0], y, w, 0.5);
     }
     const n = Math.min(6, Math.max(1, Math.round(w * h / 500)));
     for (let i = 0; i < n; i++) {
