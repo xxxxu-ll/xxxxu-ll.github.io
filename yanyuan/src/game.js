@@ -1,15 +1,15 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611081503';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611081503';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611081503';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090447';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090447';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090447';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611081503';
-import { capturePhoto, savePhoto } from './photo.js?v=202611081503';
-import { MapView, MiniMap } from './minimap.js?v=202611081503';
-import * as ui from './ui.js?v=202611081503';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611081503';
+} from './progress.js?v=202611090447';
+import { capturePhoto, savePhoto } from './photo.js?v=202611090447';
+import { MapView, MiniMap } from './minimap.js?v=202611090447';
+import * as ui from './ui.js?v=202611090447';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090447';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -28,6 +28,10 @@ export class Game {
       this.store.touch = () => {};
       this.store.flush = async () => {};
     }
+    this.store.onState = (s, attempts) => ui.setSaveState(s, attempts);
+    this.store.onError = (e, attempts) => {
+      if (attempts === 1) ui.toast('存档还没保存上，正在自动重试…', 'warn');
+    };
 
     this.canvas = ui.el.canvas;
     this.ctx = this.canvas.getContext('2d', { alpha: false });
@@ -77,7 +81,6 @@ export class Game {
     this.frameTime = 0;
     this.fpsSamples = [];
 
-    this.store.onError = () => ui.toast('存档暂未保存，正在重试…', 'warn');
     this.store.onSaved = () => {};
 
     this._bindInput();
@@ -103,7 +106,7 @@ export class Game {
       }
     });
     window.addEventListener('pagehide', () => {
-      try { this.store.flush(true); } catch { /* ignore */ }
+      try { this.store.flushKeepalive(); } catch { /* ignore */ }
     });
 
     ui.el.hud.classList.remove('hidden');
@@ -120,6 +123,14 @@ export class Game {
     // 首次进入视为一次探索
     this.progress.ach.enter = this.progress.ach.enter || Date.now();
     this.checkAchievements();
+
+    // 本机有未同步的存档就补传一次（只在与当前身份匹配时）
+    if (!this.offline) {
+      ui.setSaveState('saved');
+      this.store.recoverDraft().then((ok) => {
+        if (ok) ui.toast('已补传本机未同步的进度', 'good');
+      }).catch(() => {});
+    }
 
     this.loop(performance.now());
     if (!this.offline) {
@@ -156,9 +167,38 @@ export class Game {
 
   // ---------------- 输入 ----------------
   _bindInput() {
+    const isTyping = (el) => {
+      if (!el) return false;
+      const tag = (el.tagName || '').toUpperCase();
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true;
+    };
+
     window.addEventListener('keydown', (e) => {
-      if (this.chatOpen) return;
       const k = e.key.toLowerCase();
+      const typing = isTyping(e.target);
+
+      // 1) 正在输入框里打字：只处理 Esc，其余交给输入框（含输入法）
+      if (typing) {
+        if (k === 'escape') e.target.blur();
+        return;
+      }
+
+      // 2) 有弹窗开着：只允许 Esc / 同键关闭，不触发游戏快捷键
+      if (this.overlayOpen()) {
+        if (k === 'escape') { this.closeTopOverlay(); return; }
+        if (k === 'm' && !ui.el.mapOverlay.classList.contains('hidden')) { this.closeMap(); return; }
+        if (k === 'j' && !ui.el.journalOverlay.classList.contains('hidden')) {
+          ui.el.journalOverlay.classList.add('hidden'); return;
+        }
+        return;
+      }
+
+      // 3) 聊天输入中
+      if (this.chatOpen) {
+        if (k === 'escape') this.closeChat();
+        return;
+      }
+
       if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
       this.keys.add(k);
       if (k === 'e') this.interact();
@@ -169,7 +209,10 @@ export class Game {
       if (k === 't' || k === 'enter') { e.preventDefault(); this.openChat(); }
       if (k === 'shift') this.keys.add('shift');
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
+    window.addEventListener('keyup', (e) => {
+      if (isTyping(e.target)) return;
+      this.keys.delete(e.key.toLowerCase());
+    });
     window.addEventListener('blur', () => this.keys.clear());
 
     // 虚拟摇杆
@@ -347,6 +390,7 @@ export class Game {
 
     me.mode = me.mode === 'bike' ? 'bike' : (this.keys.has('shift') && moving ? 'run' : 'walk');
 
+
     // 镜头
     const targetX = me.x + (me.dir === 'left' ? -1.6 : me.dir === 'right' ? 1.6 : 0);
     const targetY = me.y - 1.2 + (me.dir === 'up' ? -1.4 : 0);
@@ -394,9 +438,21 @@ export class Game {
       }
     }
 
-    // 成就
+    // 成就 + 里程结算（每 2 秒把移动距离写进存档）
     this.achAcc += dt;
-    if (this.achAcc > 2) { this.achAcc = 0; this.checkAchievements(); }
+    if (this.achAcc > 2) {
+      this.achAcc = 0;
+      const dd = this.me.dist - (this._statDist || 0);
+      const db = this.me.bike - (this._statBike || 0);
+      if (dd > 0.3 || db > 0.3) {
+        this.progress.stats.dist = (this.progress.stats.dist || 0) + Math.max(0, dd);
+        this.progress.stats.bike = (this.progress.stats.bike || 0) + Math.max(0, db);
+        this._statDist = this.me.dist;
+        this._statBike = this.me.bike;
+        this.store.touch();
+      }
+      this.checkAchievements();
+    }
 
     // 互动目标
     this.nearest = this.findNearest();
@@ -405,7 +461,7 @@ export class Game {
     // 目的地
     if (this.waypoint) {
       const d = dist(me.x, me.y, this.waypoint.x, this.waypoint.y);
-      if (d < 7) {
+      if (d < 8) {
         ui.toast('到达 ' + (this.waypoint.name || '目的地'), 'good');
         this.waypoint = null;
       }
@@ -757,6 +813,12 @@ export class Game {
       || !ui.el.codeOverlay.classList.contains('hidden');
   }
 
+  closeTopOverlay() {
+    if (!ui.el.helpOverlay.classList.contains('hidden')) { ui.el.helpOverlay.classList.add('hidden'); return; }
+    if (!ui.el.journalOverlay.classList.contains('hidden')) { ui.el.journalOverlay.classList.add('hidden'); return; }
+    if (!ui.el.mapOverlay.classList.contains('hidden')) { this.closeMap(); return; }
+  }
+
   // ---------------- 同步 ----------------
   async sync(force = false) {
     if (this.offline) return;
@@ -845,8 +907,10 @@ export class Game {
         this.progress.stats.chats = (this.progress.stats.chats || 0) + 1;
         this.store.touch();
         this.checkAchievements();
+        // 只把游标推进到这条消息的服务端时间，不能推到本地当前时刻，
+        // 否则会跳过这期间别人发的消息
+        this.lastMsgAt = Math.max(this.lastMsgAt, res.message.at || 0);
       }
-      this.lastMsgAt = Math.max(this.lastMsgAt, Date.now());
     } catch (e) {
       ui.toast(e.message || '消息发送失败', 'bad');
       ui.el.chatInput.value = text;
@@ -890,8 +954,16 @@ export class Game {
   }
 
   setWaypoint(p) {
-    const name = p.landmark ? p.landmark.name : '自定义位置';
-    this.waypoint = { x: p.x, y: p.y, name };
+    let name = p.landmark ? p.landmark.name : '自定义位置';
+    let x = p.x, y = p.y;
+    if (p.landmark && p.landmark.ax !== undefined) {
+      // 地标：终点放在最近可达点（门口/路边），而不是建筑中心
+      x = p.landmark.ax; y = p.landmark.ay;
+    } else {
+      const [sx, sy] = this.world.snapToWalkable(x, y);
+      x = sx; y = sy;
+    }
+    this.waypoint = { x, y, name };
     this.refreshMap();
     ui.toast('目的地：' + name, 'good');
   }
@@ -917,15 +989,15 @@ export class Game {
         li.appendChild(s);
       }
       li.onclick = () => {
-        this.waypoint = { x: l.x, y: l.y, name: l.name };
+        this.waypoint = this.world.waypointFor(l);
         this.refreshMap();
         ui.toast('目的地：' + l.name, 'good');
         // 地图平移过去
         if (this.mapView) {
           const img = this.mapView.layers.full.canvas;
           const f = img.width / (this.world.world[2] - this.world.world[0]);
-          this.mapView.offsetX = this.mapView.canvas.width / 2 - (l.x - this.world.world[0]) * f * this.mapView.scale;
-          this.mapView.offsetY = this.mapView.canvas.height / 2 - (l.y - this.world.world[1]) * f * this.mapView.scale;
+          this.mapView.offsetX = this.mapView.canvas.width / 2 - (this.waypoint.x - this.world.world[0]) * f * this.mapView.scale;
+          this.mapView.offsetY = this.mapView.canvas.height / 2 - (this.waypoint.y - this.world.world[1]) * f * this.mapView.scale;
           this.mapView.draw();
         }
       };
@@ -941,7 +1013,7 @@ export class Game {
     if (!q) return;
     const first = this.world.search(q, 1)[0];
     if (first) {
-      this.waypoint = { x: first.x, y: first.y, name: first.name };
+      this.waypoint = this.world.waypointFor(first);
       this.refreshMap();
       this.closeMap();
       ui.toast('目的地：' + first.name, 'good');

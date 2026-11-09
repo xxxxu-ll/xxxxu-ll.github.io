@@ -1,7 +1,7 @@
 // 界面层：HUD、提示、聊天、手册、弹窗
-import { escapeHtml, pad2 } from './util.js?v=202611081503';
-import { ACHIEVEMENTS } from './progress.js?v=202611081503';
-import { affinityLabel, AFF } from './cats.js?v=202611081503';
+import { escapeHtml, pad2 } from './util.js?v=202611090447';
+import { ACHIEVEMENTS } from './progress.js?v=202611090447';
+import { affinityLabel, AFF } from './cats.js?v=202611090447';
 
 const $ = (id) => document.getElementById(id);
 
@@ -106,6 +106,19 @@ export function setExplore(found, total) {
 
 export function setClock(hour, minute) {
   el.chipClock.textContent = `${pad2(hour)}:${pad2(minute)}`;
+}
+
+/** 存档状态：saved / pending / saving / offline */
+export function setSaveState(state, attempts = 0) {
+  const chip = document.getElementById('chipSave');
+  if (!chip) return;
+  chip.classList.remove('save-warn', 'save-bad');
+  if (state === 'saving') { chip.textContent = '保存中…'; }
+  else if (state === 'pending') { chip.textContent = '待同步'; chip.classList.add('save-warn'); }
+  else if (state === 'offline') {
+    chip.textContent = attempts > 1 ? `未保存·重试(${attempts})` : '未保存';
+    chip.classList.add('save-bad');
+  } else { chip.textContent = '已保存'; }
 }
 
 // ---------------- 手册 ----------------

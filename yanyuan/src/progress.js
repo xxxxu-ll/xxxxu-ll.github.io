@@ -1,6 +1,6 @@
 // 玩家进度：探索记录、校园猫关系、成就、物品、统计
-import { clamp } from './util.js?v=202611081503';
-import { AFF } from './cats.js?v=202611081503';
+import { clamp } from './util.js?v=202611090447';
+import { AFF } from './cats.js?v=202611090447';
 
 export function defaultProgress() {
   return {
@@ -121,42 +121,110 @@ export function addItem(progress, name) {
   return true;
 }
 
-// ---------------- 存档节流 ----------------
+// ---------------- 存档节流 + 可靠重试 ----------------
+const DRAFT_KEY = 'yanyuan.pending';
+
 export class ProgressStore {
   constructor(api, progress) {
     this.api = api;
     this.progress = progress;
     this.dirty = false;
-    this.timer = null;
     this.saving = false;
+    this.timer = null;
+    this.retryTimer = null;
+    this.attempts = 0;
+    this.state = 'saved';          // saved | pending | saving | offline
     this.lastSaved = 0;
     this.onError = null;
     this.onSaved = null;
+    this.onState = null;
   }
 
+  _setState(s) {
+    if (this.state === s) return;
+    this.state = s;
+    this.onState && this.onState(s, this.attempts);
+  }
+
+  /** 内容有变化：写本地草稿并安排一次保存 */
   touch() {
     this.dirty = true;
+    this.saveDraft();
+    this._setState('pending');
     if (this.timer) return;
     this.timer = setTimeout(() => {
       this.timer = null;
       this.flush();
-    }, 4000);
+    }, 3500);
+  }
+
+  saveDraft() {
+    try {
+      const token = (this.api.token || '').slice(0, 8);
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ token, progress: this.progress, at: Date.now() }));
+    } catch { /* 配额满了就算了 */ }
+  }
+
+  clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+  }
+
+  /** 启动时：如果本机有没传上去的草稿，补传一次 */
+  async recoverDraft() {
+    let raw = null;
+    try { raw = localStorage.getItem(DRAFT_KEY); } catch { return false; }
+    if (!raw) return false;
+    let d;
+    try { d = JSON.parse(raw); } catch { this.clearDraft(); return false; }
+    const token = (this.api.token || '').slice(0, 8);
+    if (!d || d.token !== token || !d.progress) { this.clearDraft(); return false; }
+    if (Date.now() - (d.at || 0) > 3 * 24 * 3600 * 1000) { this.clearDraft(); return false; }
+    Object.assign(this.progress, d.progress);
+    this.dirty = true;
+    await this.flush(true);
+    return this.state === 'saved';
   }
 
   async flush(force = false) {
     if (this.saving) return;
     if (!this.dirty && !force) return;
+    if (!this.api.token) return;
     this.saving = true;
+    this._setState('saving');
     this.dirty = false;
     try {
       const res = await this.api.saveProgress(this.progress);
       this.lastSaved = Date.now();
+      this.attempts = 0;
+      this.clearDraft();
+      this._setState('saved');
       this.onSaved && this.onSaved(res);
     } catch (e) {
       this.dirty = true;
-      this.onError && this.onError(e);
+      this.attempts++;
+      this._setState('offline');
+      this.onError && this.onError(e, this.attempts);
+      // 指数退避重试：4s、8s、16s……最多 60s
+      const wait = Math.min(60000, 4000 * Math.pow(2, this.attempts - 1));
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+      this.retryTimer = setTimeout(() => { this.retryTimer = null; this.flush(); }, wait);
     } finally {
       this.saving = false;
     }
+  }
+
+  /** 关页面时用 keepalive 尽量把最后一次写出去 */
+  flushKeepalive() {
+    if (!this.dirty || !this.api.token) return;
+    try {
+      const body = JSON.stringify({ progress: this.progress });
+      fetch(this.api.base + '/progress', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + this.api.token },
+        body,
+        keepalive: true,
+        mode: 'cors',
+      }).catch(() => {});
+    } catch { /* ignore */ }
   }
 }

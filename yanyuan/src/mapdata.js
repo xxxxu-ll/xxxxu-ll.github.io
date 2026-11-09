@@ -1,5 +1,5 @@
 // 地图数据装载与索引：碰撞、空间网格、树木生成、地标检索
-import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611081503';
+import { toFlat, polyBBox, pointInPoly, circlePoly, mulberry32, distToSeg, clamp } from './util.js?v=202611090447';
 
 export const PPM = 8; // 每米像素数（世界渲染基准）
 
@@ -66,12 +66,21 @@ export class World {
     }));
 
     // 地标：用于搜索与探索
+    // p = 标注点（多在建筑中心），a = 最近可达点（导航终点用这个）
     this.landmarks = [];
     for (const l of raw.landmarks || []) {
-      this.landmarks.push({ name: l.n, type: l.t, x: l.p[0] * S, y: l.p[1] * S, kind: l.k });
+      const a = l.a || l.p;
+      this.landmarks.push({
+        name: l.n, type: l.t, x: l.p[0] * S, y: l.p[1] * S, kind: l.k,
+        ax: a[0] * S, ay: a[1] * S, moved: (l.moved || 0),
+      });
     }
     for (const a of raw.aliases || []) {
-      this.landmarks.push({ name: a.n, type: a.t, x: a.p[0] * S, y: a.p[1] * S, kind: a.k, aliasOf: a.aliasOf });
+      const p = a.a || a.p;
+      this.landmarks.push({
+        name: a.n, type: a.t, x: a.p[0] * S, y: a.p[1] * S, kind: a.k, aliasOf: a.aliasOf,
+        ax: p[0] * S, ay: p[1] * S, moved: 0,
+      });
     }
     // 去重：同名同坐标，以及同一位置上近似的多个名字（如「北大西门」与「北京大学西门」）
     const seen = new Set();
@@ -307,16 +316,30 @@ export class World {
     return { name: '燕园', type: '校园' };
   }
 
-  /** 用于探索进度：附近未发现的地标 */
+  /**
+   * 用于探索进度：附近未发现的地标。
+   * 判定用「到可达点的距离」而不是到建筑质心的距离——
+   * 大建筑（如图书馆）质心离最近可走位置有 46 米，用质心永远判定不到。
+   */
   nearbyLandmarks(x, y, r) {
     const out = [];
     for (const l of this.landmarks) {
       if (l.aliasOf) continue;
-      if (Math.abs(l.x - x) < r && Math.abs(l.y - y) < r) {
-        if (Math.hypot(l.x - x, l.y - y) <= r) out.push(l);
-      }
+      const d = Math.hypot(l.ax - x, l.ay - y);
+      const reach = (l.moved || 0) + r;
+      if (d <= reach || Math.hypot(l.x - x, l.y - y) <= reach) out.push(l);
     }
     return out;
+  }
+
+  /** 地标导航终点（可达点）；玩家点在地图上的位置若不可走，就近吸附 */
+  waypointFor(l) {
+    return { x: l.ax, y: l.ay, name: l.name };
+  }
+
+  snapToWalkable(x, y, r = 0.8) {
+    if (!this.blocked(x, y, r)) return [x, y];
+    return this.findFree(x, y, r, 40);
   }
 
   search(query, limit = 40) {
