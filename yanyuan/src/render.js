@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox } from './util.js?v=202611090505';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox } from './util.js?v=202611090517';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）

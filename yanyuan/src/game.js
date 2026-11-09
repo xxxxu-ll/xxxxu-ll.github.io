@@ -1,16 +1,16 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090505';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090505';
-import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090505';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611090517';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611090517';
+import { CAT_DEFS, Cat, AFF, affinityLabel } from './cats.js?v=202611090517';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611090505';
-import { capturePhoto, savePhoto } from './photo.js?v=202611090505';
-import { MapView, MiniMap } from './minimap.js?v=202611090505';
-import { placeFor } from './places.js?v=202611090505';
-import * as ui from './ui.js?v=202611090505';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090505';
+} from './progress.js?v=202611090517';
+import { capturePhoto, savePhoto } from './photo.js?v=202611090517';
+import { MapView, MiniMap } from './minimap.js?v=202611090517';
+import { placeFor } from './places.js?v=202611090517';
+import * as ui from './ui.js?v=202611090517';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611090517';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -373,6 +373,12 @@ export class Game {
   loop(now) {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
+    // 显示器缩放/浏览器缩放变化时重建缓冲
+    if (Math.abs((window.devicePixelRatio || 1) - this.dpr) > 0.01 ||
+        Math.abs(window.innerWidth - this.cssW) > 1 ||
+        Math.abs(window.innerHeight - this.cssH) > 1) {
+      this.resize();
+    }
     const dtRaw = (now - this.lastFrame) / 1000;
     this.lastFrame = now;
     if (this.paused) return;
@@ -730,9 +736,11 @@ export class Game {
     drawNightLights(g, this.world, cam, hour);
 
     // 整数倍放大到屏幕（最近邻，像素块清晰）
+    // 注意：这里必须铺满 canvas 的设备像素，而不是 low.width*2 ——
+    // 在 devicePixelRatio>1（Windows 125%/150% 缩放、手机）时否则只画左上一块
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.low, 0, 0, this.low.width * UPSCALE, this.low.height * UPSCALE);
+    ctx.drawImage(this.low, 0, 0, this.canvas.width, this.canvas.height);
 
     // 高清文字层（建筑名、玩家名牌、目的地距离）
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
