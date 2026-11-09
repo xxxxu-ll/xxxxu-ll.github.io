@@ -1,7 +1,7 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090823';
-import { heritageType } from './heritage.js?v=202611090823';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090832';
+import { heritageType } from './heritage.js?v=202611090832';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -876,7 +876,7 @@ export function prepareBuilding(b) {
   b._path = path;
   b._style = buildingStyle(b);
   // 视觉高度（低分辨率像素）
-  b._hpx = clamp(Math.round(Math.sqrt(Math.max(3, b.h)) * 4.4), 8, 30);
+  b._hpx = clamp(Math.round(Math.sqrt(Math.max(3, b.h)) * 8.6), 14, 56);
   return b;
 }
 
@@ -921,31 +921,81 @@ export function drawBuilding(ctx, b, cam, hour) {
   ctx.fill(b._path);
   ctx.save();
   ctx.clip(b._path);
-  const wallTop = bb[3] - hpx;
-  // 檐下压暗一条
-  ctx.fillStyle = 'rgba(60,50,38,.28)';
-  ctx.fillRect(bb[0], wallTop, w, Math.max(1, Math.min(1.6, hpx * 0.22)));
-  // 窗：一条连续窗带，少量亮缝
-  const rows = hpx >= 18 ? 2 : 1;
-  const winH = Math.max(1.2, Math.min(2.1, hpx * 0.22));
-  for (let r = 0; r < rows; r++) {
-    const y = bb[3] - 1.6 - (r + 1) * (hpx / (rows + 0.6)) + 1.4;
-    ctx.fillStyle = 'rgba(74,98,118,.5)';
-    ctx.fillRect(bb[0] + 1.2, y, w - 2.4, winH);
-    ctx.fillStyle = 'rgba(150,192,212,.32)';
-    for (let x = bb[0] + 1.8; x < bb[2] - 1.8; x += 3.2) {
-      if (night && rng() > 0.55) ctx.fillStyle = 'rgba(255,232,170,.8)';
-      ctx.fillRect(x, y, 1.1, winH);
-      if (night) ctx.fillStyle = 'rgba(150,192,212,.32)';
+  // 注意：这里的坐标单位是"米"，hpx 是像素，必须换算
+  const wallH = hpx / S;                       // 立面高度（米）
+  const wallTop = bb[3] - wallH;
+  // 檐下阴影（屋顶出檐投在墙上的暗边）
+  ctx.fillStyle = 'rgba(48,40,30,.34)';
+  ctx.fillRect(bb[0], wallTop, w, Math.min(0.9, wallH * 0.14));
+
+  // ---- 楼层与窗格（全部按米计算）----
+  const eave = Math.min(0.9, wallH * 0.14);
+  const floors = clamp(Math.round(wallH / 3.4), 1, 5);
+  const floorH = (wallH - eave) / floors;
+  const cols = Math.max(2, Math.round(w / 2.8));
+  const gap = w / cols;
+  for (let f = 0; f < floors; f++) {
+    const fy = wallTop + eave + f * floorH;
+    const isGround = f === floors - 1;
+    if (isGround) {
+      ctx.fillStyle = 'rgba(60,54,42,.16)';
+      ctx.fillRect(bb[0], fy, w, floorH);
+    }
+    for (let c = 0; c < cols; c++) {
+      const wx = bb[0] + c * gap + gap * 0.22;
+      const ww = Math.min(1.8, gap * 0.62);
+      const wh = Math.min(1.9, floorH * (isGround ? 0.42 : 0.52));
+      const wy = fy + floorH * (isGround ? 0.34 : 0.18);
+      const lit = night && rng() > 0.45;
+      ctx.fillStyle = lit ? '#ffe9a8' : 'rgba(86,114,134,.78)';
+      ctx.fillRect(wx, wy, ww, wh);
+      if (lit) {
+        ctx.fillStyle = 'rgba(255,240,200,.30)';
+        ctx.fillRect(wx, wy, ww, Math.max(0.3, wh * 0.3));
+      }
+      // 窗台亮线
+      ctx.fillStyle = 'rgba(255,250,238,.55)';
+      ctx.fillRect(wx - 0.15, wy + wh, ww + 0.3, 0.22);
+      // 中梃
+      if (ww > 1) {
+        ctx.fillStyle = 'rgba(255,250,238,.25)';
+        ctx.fillRect(wx + ww * 0.47, wy, 0.16, wh);
+      }
+    }
+    // 楼层分隔线
+    if (!isGround) {
+      ctx.fillStyle = 'rgba(80,66,50,.18)';
+      ctx.fillRect(bb[0], fy + floorH - 0.18, w, 0.18);
     }
   }
-  // 入口：门洞
+
+  // ---- 入口：门 + 雨篷 + 招牌 ----
   if (w > 8) {
-    const dw = Math.min(4, w * 0.16);
-    ctx.fillStyle = 'rgba(40,44,40,.55)';
-    ctx.fillRect(bb[0] + (w - dw) / 2, bb[3] - Math.min(3, hpx * 0.6), dw, Math.min(3, hpx * 0.6));
-  }
-  ctx.restore();
+    const dw = Math.min(5, w * 0.16);
+    const dh = Math.min(floorH * 0.8, 3.2);
+    const dx = bb[0] + (w - dw) / 2;
+    const dy = bb[3] - dh;
+    // 雨篷
+    ctx.fillStyle = 'rgba(40,34,26,.28)';
+    ctx.fillRect(dx - 1.2, dy - 0.4, dw + 2.4, 0.5);
+    ctx.fillStyle = '#e6dcc4';
+    ctx.fillRect(dx - 1.4, dy - 1.1, dw + 2.8, 0.7);
+    ctx.fillStyle = 'rgba(60,52,40,.4)';
+    ctx.fillRect(dx - 1.4, dy - 0.35, dw + 2.8, 0.22);
+    // 门洞
+    ctx.fillStyle = 'rgba(52,54,50,.82)';
+    ctx.fillRect(dx, dy, dw, dh);
+    ctx.fillStyle = 'rgba(255,240,200,.20)';
+    ctx.fillRect(dx + dw * 0.12, dy + dh * 0.12, dw * 0.28, dh * 0.76);
+    ctx.fillRect(dx + dw * 0.56, dy + dh * 0.12, dw * 0.28, dh * 0.76);
+    // 招牌
+    if (wallH > 9) {
+      ctx.fillStyle = '#b23a2a';
+      ctx.fillRect(dx - 0.8, dy - 2.4, dw + 1.6, 1);
+      ctx.fillStyle = 'rgba(255,240,210,.8)';
+      for (let i = 0; i < 3; i++) ctx.fillRect(dx + 0.4 + i * dw * 0.26, dy - 2.0, dw * 0.16, 0.3);
+    }
+  }  ctx.restore();
   // 立面底边硬线
   ctx.beginPath(); ctx.moveTo(bb[0], bb[3]);
   for (let i = 0; i < b.outer[0].length; i += 2) ctx.lineTo(b.outer[0][i], b.outer[0][i + 1]);

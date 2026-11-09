@@ -1,7 +1,7 @@
 // 校园猫：位置、性格、漫游与关系养成
 // 说明：这些猫是《像素燕园》的原创游戏设定角色，不是对真实校园猫的记录。
 // 真实校园猫的姓名、性格与出没点需要另行核实后才能加入。
-import { mulberry32, clamp } from './util.js?v=202611090823';
+import { mulberry32, clamp } from './util.js?v=202611090832';
 
 export const CAT_DEFS = [
   {
