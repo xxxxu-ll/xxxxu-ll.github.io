@@ -1,18 +1,18 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091209';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091209';
-import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091209';
-import { heritageText } from './heritage.js?v=202611091209';
-import { PILOT, inPilot, buildCells, drawPilotGround, drawTileBuilding, drawTileTree } from './tilepilot.js?v=202611091209';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091218';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091218';
+import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091218';
+import { heritageText } from './heritage.js?v=202611091218';
+import { PILOT, inPilot, buildCells, drawPilotGround, drawTileBuilding, drawTileTree } from './tilepilot.js?v=202611091218';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611091209';
-import { capturePhoto, savePhoto } from './photo.js?v=202611091209';
-import { MapView, MiniMap } from './minimap.js?v=202611091209';
-import { placeFor } from './places.js?v=202611091209';
-import * as ui from './ui.js?v=202611091209';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091209';
+} from './progress.js?v=202611091218';
+import { capturePhoto, savePhoto } from './photo.js?v=202611091218';
+import { MapView, MiniMap } from './minimap.js?v=202611091218';
+import { placeFor } from './places.js?v=202611091218';
+import * as ui from './ui.js?v=202611091218';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091218';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -829,19 +829,44 @@ export class Game {
 
   /** 图块模式的建筑：颜色取自 style.csv 的瓦色/墙体 */
   drawTileBuildingEntity(ctx, b, cam) {
-    const fam = (b.st && b.st.tile) || '';
-    const catRoof = { '教学': '#6b665c', '生活': '#a8503a', '食堂': '#b4643c', '园林': '#585349', '体育': '#4f5a66', '校园服务': '#7a5140', '校门': '#8d3520' };
-    const roof = fam.includes('灰瓦') ? '#5a564e'
-      : fam.includes('琉璃') ? '#4f7d5a'
-        : fam.includes('红瓦') ? '#bf5330'
+    // ---- 每栋楼一套"外观参数"：墙色 / 窗型 / 底层 / 檐口 ----
+    const h = ((b.id | 0) * 2654435761) >>> 0;
+    const tile = (b.st && b.st.tile) || '';
+    const wallStyle = (b.st && b.st.wall) || '';
+    const winStyle = (b.st && b.st.win) || '';
+    const catRoof = {
+      '教学': '#6b665c', '生活': '#a8503a', '食堂': '#b4643c', '园林': '#585349',
+      '体育': '#4f5a66', '校园服务': '#7a5140', '校门': '#8d3520',
+    };
+    const roof = tile.includes('灰瓦') ? '#5a564e'
+      : tile.includes('琉璃') ? '#4f7d5a'
+        : tile.includes('红瓦') ? '#bf5330'
           : (catRoof[b.cat] || '#6b665c');
-    const wall = (b.st && b.st.wall) || '';
-    const wallC = wall.includes('红砖') ? '#d9b8a4'
-      : wall.includes('石材') ? '#d6d1c4'
-        : wall.includes('木构') ? '#c8a888' : '#efe6d2';
-    const win = (b.st && b.st.win) || '';
-    const band = win.includes('拱窗') ? 3 : win.includes('木格') ? 3 : 1;
-    drawTileBuilding(ctx, b, cam, roof, wallC, band);
+    // 墙色：材质优先，否则按类别 + 哈希给 5 种
+    const WALLS = {
+      '白灰墙': ['#efe6d2', '#e9dfc9', '#f2ecdc'],
+      '红砖': ['#d9b8a4', '#cfae98', '#e0c4b0'],
+      '石材': ['#d6d1c4', '#cbc6b8'],
+      '木构': ['#c8a888', '#bd9e7e'],
+    };
+    let wallSet = WALLS[wallStyle];
+    if (!wallSet) {
+      wallSet = b.cat === '生活' ? ['#e6d3b4', '#dcc7a6', '#efdcbe']
+        : b.cat === '食堂' ? ['#e8d5ae', '#f0dfc0']
+          : b.cat === '体育' ? ['#d8dcdd', '#c9ced0']
+            : ['#efe6d2', '#e9e0cc', '#f3ecdc', '#e4d9c0'];
+    }
+    const wall = wallSet[h % wallSet.length];
+    // 窗型：拱窗→3，木格→5，带窗→4，否则在 1/4/7 里按哈希
+    let band = winStyle.includes('拱窗') ? 3
+      : winStyle.includes('木格') ? 5
+        : winStyle.includes('带窗') ? 4
+          : [1, 4, 7, 1, 8][h % 5];
+    // 食堂/服务：底层做橱窗
+    const groundBand = (b.cat === '食堂' || b.cat === '校园服务') ? 6 : 2;
+    // 檐口颜色：深一档的屋顶色
+    const eave = b.cat === '园林' || tile.includes('灰瓦') ? '#8d3520' : '#7a2f18';
+    drawTileBuilding(ctx, b, cam, roof, wall, band, groundBand, eave);
   }
 
   drawGroundMarks(ctx) {

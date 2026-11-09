@@ -1,7 +1,7 @@
 // 图块素材：来源于 CC0 公共领域素材包 Ninja Adventure（pixel-boy）
 // https://github.com/pixel-boy/NinjaAdventure  ·  License: CC0-1.0
 // 只取其中 16×16 的地面瓦片；建筑用程序化图块（同一套调色板）
-import { mulberry32 } from './util.js?v=202611091209';
+import { mulberry32 } from './util.js?v=202611091218';
 
 export const TILE = 16;            // 图块像素
 export const TILE_M = 2;           // 一格 = 2 米
@@ -91,42 +91,84 @@ export function drawRidgeTile(ctx, base, dx, dy, px = TILE) {
   ctx.fillRect(dx, dy + px * 0.74, px, px * 0.16);
 }
 
-/** 墙面图块（band=0 素墙 / 1 带窗 / 2 底层门窗 / 3 拱窗） */
+/** 墙面图块：band 0 素墙 / 1 方窗 / 2 门 / 3 拱窗 / 4 带窗 / 5 木格窗 / 6 橱窗 / 7 阳台 / 8 标语墙 */
 export function drawWallTile(ctx, wall, band, dx, dy, px = TILE, seed = 1) {
   const rng = mulberry32(seed * 613 + dx * 7 + dy * 13);
   ctx.fillStyle = wall;
   ctx.fillRect(dx, dy, px, px);
-  // 砖缝
-  ctx.fillStyle = 'rgba(120,96,72,.14)';
+  ctx.fillStyle = 'rgba(110,90,68,.13)';
   ctx.fillRect(dx, dy + px * 0.5, px, 1);
   ctx.fillRect(dx + px * (rng() > 0.5 ? 0.25 : 0.6), dy, 1, px * 0.5);
-  if (band === 1) {
-    // 窗
-    ctx.fillStyle = '#5c7a8c';
-    ctx.fillRect(dx + px * 0.18, dy + px * 0.22, px * 0.64, px * 0.46);
-    ctx.fillStyle = '#9fc4d6';
-    ctx.fillRect(dx + px * 0.2, dy + px * 0.24, px * 0.26, px * 0.4);
-    ctx.fillStyle = '#e8e2d2';
-    ctx.fillRect(dx + px * 0.14, dy + px * 0.68, px * 0.72, px * 0.1);
-  } else if (band === 2) {
-    // 底层：门洞 + 窗
+  const glass = '#587586', glassLit = '#9fc4d6', trim = '#ece6d6';
+
+  if (band === 1) {                       // 方窗
+    ctx.fillStyle = glass;
+    ctx.fillRect(dx + px * 0.2, dy + px * 0.24, px * 0.6, px * 0.42);
+    ctx.fillStyle = glassLit;
+    ctx.fillRect(dx + px * 0.23, dy + px * 0.27, px * 0.22, px * 0.34);
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx + px * 0.16, dy + px * 0.66, px * 0.68, px * 0.09);
+  } else if (band === 2) {                // 门
     ctx.fillStyle = '#4a4a44';
-    ctx.fillRect(dx + px * 0.24, dy + px * 0.24, px * 0.52, px * 0.64);
-    ctx.fillStyle = 'rgba(255,240,200,.25)';
-    ctx.fillRect(dx + px * 0.28, dy + px * 0.3, px * 0.18, px * 0.52);
-    ctx.fillStyle = '#e8e2d2';
-    ctx.fillRect(dx + px * 0.2, dy + px * 0.18, px * 0.6, px * 0.08);
-  } else if (band === 3) {
-    // 拱窗
-    ctx.fillStyle = '#e8e2d2';
-    ctx.fillRect(dx + px * 0.18, dy + px * 0.18, px * 0.64, px * 0.6);
-    ctx.fillStyle = '#5c7a8c';
-    ctx.fillRect(dx + px * 0.24, dy + px * 0.26, px * 0.52, px * 0.5);
-    ctx.fillStyle = '#e8e2d2';
-    ctx.fillRect(dx + px * 0.3, dy + px * 0.14, px * 0.4, px * 0.1);
+    ctx.fillRect(dx + px * 0.26, dy + px * 0.2, px * 0.48, px * 0.7);
+    ctx.fillStyle = 'rgba(255,240,200,.22)';
+    ctx.fillRect(dx + px * 0.3, dy + px * 0.26, px * 0.16, px * 0.56);
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx + px * 0.2, dy + px * 0.12, px * 0.6, px * 0.1);
+  } else if (band === 3) {                // 拱窗
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx + px * 0.16, dy + px * 0.2, px * 0.68, px * 0.62);
+    ctx.fillStyle = glass;
+    ctx.fillRect(dx + px * 0.22, dy + px * 0.28, px * 0.56, px * 0.5);
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx + px * 0.3, dy + px * 0.16, px * 0.4, px * 0.09);
+    ctx.fillStyle = glassLit;
+    ctx.fillRect(dx + px * 0.26, dy + px * 0.32, px * 0.16, px * 0.4);
+  } else if (band === 4) {                // 连续带窗
+    ctx.fillStyle = glass;
+    ctx.fillRect(dx, dy + px * 0.26, px, px * 0.38);
+    ctx.fillStyle = glassLit;
+    ctx.fillRect(dx, dy + px * 0.3, px * 0.34, px * 0.3);
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx, dy + px * 0.64, px, px * 0.07);
+    ctx.fillRect(dx + px * 0.5, dy + px * 0.26, 1, px * 0.38);
+  } else if (band === 5) {                // 木格窗
+    ctx.fillStyle = '#7a5340';
+    ctx.fillRect(dx + px * 0.18, dy + px * 0.22, px * 0.64, px * 0.5);
+    ctx.fillStyle = '#3f3126';
+    for (let i = 0; i < 3; i++) ctx.fillRect(dx + px * (0.2 + i * 0.21), dy + px * 0.24, 1, px * 0.46);
+    for (let i = 0; i < 2; i++) ctx.fillRect(dx + px * 0.18, dy + px * (0.34 + i * 0.18), px * 0.64, 1);
+    ctx.fillStyle = trim;
+    ctx.fillRect(dx + px * 0.14, dy + px * 0.72, px * 0.72, px * 0.08);
+  } else if (band === 6) {                // 橱窗 + 雨篷
+    ctx.fillStyle = '#f0e6d0';
+    ctx.fillRect(dx, dy + px * 0.22, px, px * 0.78);
+    ctx.fillStyle = glassLit;
+    ctx.fillRect(dx + px * 0.1, dy + px * 0.38, px * 0.8, px * 0.46);
+    ctx.fillStyle = '#b23a2a';
+    ctx.fillRect(dx, dy + px * 0.2, px, px * 0.16);
+    ctx.fillStyle = 'rgba(246,238,220,.9)';
+    for (let x = 0; x < px; x += px * 0.25) ctx.fillRect(dx + x, dy + px * 0.2, px * 0.12, px * 0.16);
+    ctx.fillStyle = '#8f3a24';
+    ctx.fillRect(dx + px * 0.1, dy + px * 0.04, px * 0.8, px * 0.12);
+  } else if (band === 7) {                // 阳台
+    ctx.fillStyle = glass;
+    ctx.fillRect(dx + px * 0.2, dy + px * 0.18, px * 0.6, px * 0.4);
+    ctx.fillStyle = 'rgba(255,250,238,.85)';
+    ctx.fillRect(dx + px * 0.08, dy + px * 0.58, px * 0.84, px * 0.16);
+    ctx.fillStyle = 'rgba(120,104,82,.45)';
+    ctx.fillRect(dx + px * 0.08, dy + px * 0.74, px * 0.84, 1);
+    ctx.fillStyle = 'rgba(150,120,90,.5)';
+    ctx.fillRect(dx + px * 0.08, dy + px * 0.42, 1, px * 0.16);
+  } else if (band === 8) {                // 标语墙
+    ctx.fillStyle = 'rgba(255,250,236,.55)';
+    ctx.fillRect(dx + px * 0.3, dy, px * 0.1, px);
+    ctx.fillStyle = '#b23a2a';
+    ctx.fillRect(dx + px * 0.42, dy + px * 0.28, px * 0.5, px * 0.3);
+    ctx.fillStyle = 'rgba(255,244,216,.9)';
+    for (let i = 0; i < 3; i++) ctx.fillRect(dx + px * (0.46 + i * 0.15), dy + px * 0.34, px * 0.08, px * 0.18);
   }
-  // 墙脚
-  ctx.fillStyle = 'rgba(60,44,30,.18)';
+  ctx.fillStyle = 'rgba(60,44,30,.16)';
   ctx.fillRect(dx, dy + px - 1, px, 1);
 }
 

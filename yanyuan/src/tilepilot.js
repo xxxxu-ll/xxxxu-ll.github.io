@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091209';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091209';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091218';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091218';
 
 // 静园片区（米）：涵盖静园草坪、三院到六院、哲学楼、燕南食堂
 export const PILOT = { x0: -250, y0: 90, x1: 130, y1: 400 };
@@ -93,7 +93,7 @@ export function drawPilotGround(ctx, cam) {
 }
 
 /** 一栋楼的图块画法：屋顶瓦片 + 屋脊 + 南侧墙 */
-export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand) {
+export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, groundBand = 2, eaveColor = '#8d3520') {
   const S = cam.scale;
   const bb = b.bbox;
   const px = Math.max(2, Math.round(TILE_M * S));   // 一格屏幕像素
@@ -123,8 +123,9 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand) 
   const cw = w / cols, chh = wallPx / rows;
   for (let r = 0; r < rows; r++) {
     for (let i = 0; i < cols; i++) {
-      const isDoor = r === rows - 1 && i === Math.floor(cols / 2);
-      const band = isDoor ? 2 : (r === 0 && rows > 1 ? 0 : windowBand);
+      const isGround = r === rows - 1;
+      const band = isGround ? (i === Math.floor(cols / 2) ? groundBand : (groundBand === 6 ? 6 : windowBand))
+        : (r === 0 && rows > 1 ? 0 : windowBand);
       drawWallTile(ctx, wallColor, band,
         Math.round(dx0 + i * cw), Math.round(roofBot + r * chh),
         Math.max(2, Math.round(cw)), (b.id || 1) + r * 7);
@@ -144,8 +145,8 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand) 
   }
   ctx.restore();
   // 檐口（屋顶最低一排压暗）
-  ctx.fillStyle = 'rgba(30,20,12,.30)';
-  ctx.fillRect(dx0, roofBot - Math.max(1, px * 0.18), w, Math.max(1, px * 0.18));
+  ctx.fillStyle = eaveColor;
+  ctx.fillRect(dx0, roofBot - Math.max(1, px * 0.22), w, Math.max(1, px * 0.22));
   ctx.strokeStyle = 'rgba(28,22,18,.5)';
   ctx.lineWidth = 1;
   ctx.strokeRect(dx0 + 0.5, roofTop + 0.5, w - 1, depth + wallPx - 1);
