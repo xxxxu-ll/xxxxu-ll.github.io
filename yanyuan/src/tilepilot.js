@@ -1,6 +1,6 @@
 // 静园图块试点：把这一片用 16px 图块重新画一遍（A 方案的第 2 阶段）
-import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091300';
-import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091300';
+import { TILE, TILE_M, PX_PER_M, drawGroundTile, drawRoofTile, drawRidgeTile, drawWallTile, drawTreeTile, loadAtlas } from './tileart.js?v=202611091309';
+import { pointInPoly, mulberry32, distToSeg } from './util.js?v=202611091309';
 
 // 全图图块（阶段 3：静园试点定稿后铺满全校）
 export const TILE_WHOLE_MAP = true;
@@ -132,7 +132,24 @@ export function drawPilotGround(ctx, cam) {
   }
 }
 
-/** 一栋楼的图块画法：屋顶 = 占地轮廓（不偏移），墙 = 轮廓向下拉（朝向观察者） */
+/** 楼的主轴角度（取最长边，归到 -45°~45°），用来让瓦片顺着楼走，而不是死对屏幕 */
+function dominantAngle(b) {
+  let best = 0, bestLen = 0;
+  for (const ring of b.outer) {
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      const dx = ring[j] - ring[i], dy = ring[j + 1] - ring[i + 1];
+      const len = Math.hypot(dx, dy);
+      if (len > bestLen) { bestLen = len; best = Math.atan2(dy, dx); }
+    }
+  }
+  let a = best;
+  while (a > Math.PI / 4) a -= Math.PI / 2;
+  while (a < -Math.PI / 4) a += Math.PI / 2;
+  return Math.abs(a) < 0.05 ? 0 : a;
+}
+
+/** 一栋楼的图块画法：屋顶 = 占地轮廓，墙 = 轮廓向下拉；瓦片网格跟着楼的主轴旋转 */
 export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, groundBand = 2, eaveColor = '#8d3520') {
   const S = cam.scale;
   const bb = b.bbox;
@@ -143,85 +160,111 @@ export function drawTileBuilding(ctx, b, cam, roofColor, wallColor, windowBand, 
   if (w < 2 || h < 2) return;
   if (dx1 < -px * 8 || dy1 < -px * 8 || dx0 > cam.w + px * 8 || dy0 > cam.h + px * 8) return;
 
-  // 墙高：层数优先，但不低于 2 格
   const floors = Math.max(1, Math.min(5, b.fl || 2));
   const wallPx = Math.max(Math.round(px * 1.6), Math.min(Math.round(px * 6), Math.round(px * floors * 1.1)));
 
-  // 轮廓（屏幕坐标）：屋顶用原位置，墙用原点向下拉 wallPx
+  // 轮廓（屏幕坐标）
+  const pts = [];
+  for (const ring of b.outer) for (let i = 0; i < ring.length; i += 2) pts.push([cam.sx(ring[i]), cam.sy(ring[i + 1])]);
+  const cx = (dx0 + dx1) / 2, cy = (dy0 + dy1) / 2;
+
+  // 让瓦片顺着楼的主轴：整体旋转坐标再画
+  const ang = dominantAngle(b);
+  const cos = Math.cos(ang), sin = Math.sin(ang);
+  const toRot = (x, y) => {
+    const ddx = x - cx, ddy = y - cy;
+    return [cx + ddx * cos + ddy * sin, cy - ddx * sin + ddy * cos];
+  };
+
+  // 旋转后的包围盒（用来铺瓦）
+  let rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;
+  for (const [x, y] of pts) {
+    const [u, v] = toRot(x, y);
+    rx0 = Math.min(rx0, u); rx1 = Math.max(rx1, u);
+    ry0 = Math.min(ry0, v); ry1 = Math.max(ry1, v);
+  }
+
   const mkPath = (dy) => {
     const p2 = new Path2D();
     for (const ring of b.outer) {
-      p2.moveTo(cam.sx(ring[0]), cam.sy(ring[1]) + dy);
-      for (let i = 2; i < ring.length; i += 2) p2.lineTo(cam.sx(ring[i]), cam.sy(ring[i + 1]) + dy);
+      const [sx0, sy0] = toRot(cam.sx(ring[0]), cam.sy(ring[1]));
+      p2.moveTo(sx0, sy0 + dy);
+      for (let i = 2; i < ring.length; i += 2) {
+        const [sx1, sy1] = toRot(cam.sx(ring[i]), cam.sy(ring[i + 1]));
+        p2.lineTo(sx1, sy1 + dy);
+      }
       p2.closePath();
     }
     return p2;
   };
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(ang);
+  ctx.translate(-cx, -cy);
+
   const roofPath = mkPath(0);
   const wallPath = mkPath(wallPx);
 
-  // 地面投影（贴着墙底）
+  // 投影（贴墙底）
   ctx.save();
   ctx.translate(px * 0.18, 0);
   ctx.fillStyle = 'rgba(30,42,30,.16)';
   ctx.fill(mkPath(wallPx + Math.round(px * 0.25)));
   ctx.restore();
 
-  // 墙：裁到"下移后的轮廓"，按格铺窗
+  // 墙：轮廓向下拉一段，铺窗
   ctx.save();
   ctx.clip(wallPath);
   ctx.fillStyle = wallColor;
   ctx.fill(wallPath);
+  const wallW = rx1 - rx0;
   const rows = Math.max(1, Math.round(wallPx / px));
-  const cols = Math.max(1, Math.round(w / px));
-  const cw = w / cols, chh = wallPx / rows;
-  const wallTopY = dy1;   // 墙带从轮廓底边往下
+  const cols = Math.max(1, Math.round(wallW / px));
+  const cw = wallW / cols, chh = wallPx / rows;
   for (let r = 0; r < rows; r++) {
     for (let i = 0; i < cols; i++) {
       const isGround = r === rows - 1;
-      const band = isGround ? (i === Math.floor(cols / 2) ? groundBand : (groundBand === 6 ? 6 : windowBand))
-        : windowBand;
+      const band = isGround ? (i === Math.floor(cols / 2) ? groundBand : (groundBand === 6 ? 6 : windowBand)) : windowBand;
       drawWallTile(ctx, wallColor, band,
-        Math.round(dx0 + i * cw), Math.round(wallTopY + r * chh),
+        Math.round(rx0 + i * cw), Math.round(ry1 + r * chh),
         Math.max(2, Math.round(cw)), (b.id || 1) + r * 7);
     }
   }
-  ctx.restore();
   // 墙脚暗线
-  ctx.save();
-  ctx.clip(wallPath);
   ctx.fillStyle = 'rgba(40,32,24,.30)';
-  ctx.fillRect(dx0 - px, dy1 + wallPx - Math.max(1, px * 0.18), w + px * 2, Math.max(1, px * 0.18));
+  ctx.fillRect(rx0 - px, ry1 + wallPx - Math.max(1, px * 0.18), wallW + px * 2, Math.max(1, px * 0.18));
   ctx.restore();
 
-  // 屋顶：占地轮廓本身（不偏移，不会被拉歪）
+  // 屋顶：占地轮廓本身，铺瓦
   ctx.save();
   ctx.clip(roofPath);
   const eaveOut = Math.round(px * 0.35);
-  for (let y = dy0 - eaveOut; y < dy1 + px; y += px) {
-    for (let x = dx0 - eaveOut; x < dx1 + px; x += px) {
+  for (let y = ry0 - eaveOut; y < ry1 + px; y += px) {
+    for (let x = rx0 - eaveOut; x < rx1 + px; x += px) {
       drawRoofTile(ctx, roofColor, x, y, px, (b.id || 1) + x + y);
     }
   }
   ctx.restore();
-  // 檐口：沿轮廓压一圈深色（用轮廓描边，不画矩形框）
+  // 檐口
   ctx.save();
   ctx.strokeStyle = eaveColor;
   ctx.globalAlpha = 0.75;
   ctx.lineWidth = Math.max(1, px * 0.16);
   ctx.stroke(roofPath);
   ctx.restore();
-  // 正脊
+  // 正脊（沿长边方向）
   ctx.save();
   ctx.clip(roofPath);
-  const horiz = w >= h;
-  if (horiz) {
-    const ry = Math.round(dy0 + h / 2 - px / 2);
-    for (let x = dx0; x < dx1; x += px) drawRidgeTile(ctx, roofColor, x, ry, px);
+  if (wallW >= ry1 - ry0) {
+    const ryMid = Math.round((ry0 + ry1) / 2 - px / 2);
+    for (let x = rx0; x < rx1; x += px) drawRidgeTile(ctx, roofColor, x, ryMid, px);
   } else {
-    const rx = Math.round(dx0 + w / 2 - px / 2);
-    for (let y = dy0; y < dy1; y += px) drawRidgeTile(ctx, roofColor, rx, y, px);
+    const rxMid = Math.round((rx0 + rx1) / 2 - px / 2);
+    for (let y = ry0; y < ry1; y += px) drawRidgeTile(ctx, roofColor, rxMid, y, px);
   }
+  ctx.restore();
+
   ctx.restore();
 }
 
