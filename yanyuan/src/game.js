@@ -1,18 +1,18 @@
 // 游戏主循环：移动、碰撞、镜头、多人同步、互动、地图、拍照
-import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091238';
-import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091238';
-import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091238';
-import { heritageText } from './heritage.js?v=202611091238';
-import { PILOT, inPilot, buildCells, drawPilotGround, drawTileBuilding, drawTileTree } from './tilepilot.js?v=202611091238';
+import { Camera, Ground, drawBuilding, drawLandmark, drawTree, drawHeritage, drawWaterAnim, drawTint, drawLabel, drawNightLights, UPSCALE } from './render.js?v=202611091249';
+import { getCharacterSheet, drawCharacter, getCatSheet, drawCat, drawNameTag } from './sprites.js?v=202611091249';
+import { CAT_DEFS, Cat, AFF, affinityLabel, catAwake } from './cats.js?v=202611091249';
+import { heritageText } from './heritage.js?v=202611091249';
+import { PILOT, inPilot, buildCells, drawPilotGround, drawTileBuilding, drawTileTree } from './tilepilot.js?v=202611091249';
 import {
   normalizeProgress, discoverNearby, evaluateAchievements, exploreCount,
   catState, bumpCat, setCatFollowing, addItem, ProgressStore,
-} from './progress.js?v=202611091238';
-import { capturePhoto, savePhoto } from './photo.js?v=202611091238';
-import { MapView, MiniMap } from './minimap.js?v=202611091238';
-import { placeFor } from './places.js?v=202611091238';
-import * as ui from './ui.js?v=202611091238';
-import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091238';
+} from './progress.js?v=202611091249';
+import { capturePhoto, savePhoto } from './photo.js?v=202611091249';
+import { MapView, MiniMap } from './minimap.js?v=202611091249';
+import { placeFor } from './places.js?v=202611091249';
+import * as ui from './ui.js?v=202611091249';
+import { clamp, dist, sanitizeText, formatRecovery } from './util.js?v=202611091249';
 
 const SPEED = { walk: 3.4, run: 6.4, bike: 9.8 };
 const BODY_R = 0.52;
@@ -719,10 +719,9 @@ export class Game {
     g.fillRect(0, 0, this.low.width, this.low.height);
     g.imageSmoothingEnabled = false;
 
-    this.ground.draw(g, cam);
-
     if (this.tileMode) drawPilotGround(g, cam);
-    drawWaterAnim(g, this.world, cam, now);
+    else this.ground.draw(g, cam);
+    if (!this.tileMode) drawWaterAnim(g, this.world, cam, now);
 
     const view = cam.viewRect(3);
     const now2 = new Date();
