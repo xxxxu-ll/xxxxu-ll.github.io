@@ -1,6 +1,6 @@
 // 像素渲染：低分辨率缓冲 + 整数倍放大（真正的像素网格，不是矢量贴图）
 // 世界按 RENDER_PPM 像素/米 绘制到离屏画布，再由 game.js 整数倍放大到屏幕。
-import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090625';
+import { clamp, shade, mixHex, rgba, mulberry32, polyBBox, distToSeg } from './util.js?v=202611090638';
 
 export const RENDER_PPM = 4;          // 低分辨率缓冲每米像素数
 export const UPSCALE = 2;             // 放大倍数（game.js 使用）
@@ -98,7 +98,11 @@ export class Ground {
           for (let i = 0; i < o.pts.length - 2; i += 2) {
             if (distToSeg(e[0], e[1], o.pts[i], o.pts[i + 1], o.pts[i + 2], o.pts[i + 3]) < o.w * 0.5 + 0.8) { near = true; break; }
           }
-          if (near) { r._junction.push(e); break; }
+          if (near) {
+            r._junction.push(e);
+            r._junctionCore = (ROAD_STYLE[o.kind] || ROAD_STYLE.footway).core;
+            break;
+          }
         }
       }
     }
@@ -211,6 +215,39 @@ export class Ground {
     for (const w of this.world.water) {
       if (!hit(w.bbox, x0, y0, x1, y1)) continue;
       for (const ring of w.rings) drawWater(g, ring, w.name);
+    }
+
+    // 桥面：道路跨水时先铺一层石桥，再让路压在上面
+    for (const br of this.world.bridges) {
+      const bx = Math.min(br.ax, br.bx), by = Math.min(br.ay, br.by);
+      if (!hit([bx - 8, by - 8, bx + 8, by + 8], x0, y0, x1, y1)) continue;
+      g.lineCap = 'round';
+      // 桥下阴影
+      g.beginPath();
+      g.moveTo(br.ax + 0.8, br.ay + 1.6);
+      g.lineTo(br.bx + 0.8, br.by + 1.6);
+      g.strokeStyle = 'rgba(24,36,40,.28)';
+      g.lineWidth = br.w * 2 + 1.6;
+      g.stroke();
+      // 桥面
+      g.beginPath();
+      g.moveTo(br.ax, br.ay);
+      g.lineTo(br.bx, br.by);
+      g.strokeStyle = '#b8b1a0';
+      g.lineWidth = br.w * 2;
+      g.stroke();
+      // 桥栏（两侧深色线）
+      const dx = br.bx - br.ax, dy = br.by - br.ay;
+      const len = Math.hypot(dx, dy) || 1;
+      const nx = -dy / len, ny = dx / len;
+      for (const side of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(br.ax + nx * br.w * side, br.ay + ny * br.w * side);
+        g.lineTo(br.bx + nx * br.w * side, br.by + ny * br.w * side);
+        g.strokeStyle = 'rgba(90,84,70,.75)';
+        g.lineWidth = 0.5;
+        g.stroke();
+      }
     }
 
     // 道路：同层一起画，路口才不会互相切出深色缺口
@@ -385,7 +422,7 @@ const ROAD_STYLE = {
   steps:       { core: '#c4c0b2', edge: '#a29e90', speck: ['#b6b2a4', '#d2cec0'], kind: 'steps' },
   service:     { core: '#8f8f89', edge: '#75756f', speck: ['#9b9b95', '#81817b', '#a2a29c'], kind: 'asphalt' },
   residential: { core: '#888882', edge: '#6e6e68', speck: ['#94948e', '#7a7a74'], kind: 'asphalt' },
-  cycleway:    { core: '#a8806a', edge: '#8a6450', speck: ['#b28a74', '#9a7460'], kind: 'path' },
+  cycleway:    { core: '#93938d', edge: '#77776f', speck: ['#9d9d97', '#86867f', '#a6a6a0'], kind: 'asphalt', bike: true },
   pedestrian:  { core: '#c5b89b', edge: '#a89a7e', speck: ['#bcae90', '#cfc3a6'], kind: 'path' },
 };
 
@@ -454,7 +491,7 @@ function roadSurface(g, r, st, rng) {
   }
   // 路口补一块圆形铺装，把两条路的端头连成一片
   if (r._junction && r._junction.length) {
-    g.fillStyle = st.core;
+    g.fillStyle = r._junctionCore || st.core;
     for (const j of r._junction) {
       g.beginPath();
       g.arc(j[0], j[1], w * 0.52, 0, Math.PI * 2);
@@ -497,6 +534,11 @@ function roadTexture(g, r, st, rng) {
 
 function roadMarking(g, r, st) {
   const w = r.w;
+  if (st.bike && w >= 3) {
+    g.strokeStyle = 'rgba(150,86,66,.55)';
+    g.lineWidth = Math.max(0.6, w * 0.24);
+    g.beginPath(); traceLine(g, r._pts); g.stroke();
+  }
   if (st.kind === 'asphalt' && w >= 3.4) {
     g.beginPath(); traceLine(g, r._pts);
     g.strokeStyle = 'rgba(210,208,196,.5)';
