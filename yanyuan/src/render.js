@@ -1033,11 +1033,13 @@ export function drawBuilding(ctx, b, cam, hour) {
     for (let i = 0; i < n2; i += 2) {
       const j = (i + 2) % n2;
       const x1 = ring[i], y1 = ring[i + 1], x2 = ring[j], y2 = ring[j + 1];
-      if (y2 - y1 <= 0.01) continue;          // 只拉朝南的边
+      const dyE = y2 - y1, dxE = Math.abs(x2 - x1);
+      // 朝南的边一定拉；水平边也拉（否则水平南墙会整段缺失）
+      if (dyE <= 0.01 && !(Math.abs(dyE) <= 0.05 && dxE > 0.5)) continue;
       skirt.moveTo(x1, y1);
       skirt.lineTo(x2, y2);
-      skirt.lineTo(x2, y2 + wallH);
-      skirt.lineTo(x1, y1 + wallH);
+      skirt.lineTo(x2, y2 - wallH);
+      skirt.lineTo(x1, y1 - wallH);
       skirt.closePath();
     }
   }
