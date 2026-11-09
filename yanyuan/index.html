@@ -7,7 +7,7 @@
 <meta name="description" content="像素燕园：多人在线像素校园。在未名湖边散步、认识校园猫、和朋友一起逛北大。" />
 <title>像素燕园 · 多人在线校园</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%235a8a3c'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%23fdfaf3' font-family='sans-serif'%3E%E7%87%95%3C/text%3E%3C/svg%3E" />
-<link rel="stylesheet" href="./src/style.css?v=202611090517" />
+<link rel="stylesheet" href="./src/style.css?v=202611090529" />
 </head>
 <body>
 <div id="app">
@@ -200,6 +200,10 @@
       <h1 class="logo">像素燕园<span>YANYUAN</span></h1>
       <p class="tagline">在未名湖边散步，认识一只猫，或者遇见一个朋友。</p>
       <div id="startStatus" class="start-status">正在连接世界…</div>
+      <div class="start-retry hidden" id="startRetry">
+        <button class="ghostbtn" id="btnRetryWorld">重新连接</button>
+        <span class="small muted" id="retryHint"></span>
+      </div>
       <div class="start-actions">
         <button class="primarybtn" id="btnCreate">创建角色</button>
         <button class="ghostbtn" id="btnRestore">用恢复码登录</button>
@@ -286,6 +290,6 @@
     <div class="boot-text" id="bootText">正在加载燕园地图…</div>
   </div>
 </div>
-<script type="module" src="./src/main.js?v=202611090517"></script>
+<script type="module" src="./src/main.js?v=202611090529"></script>
 </body>
 </html>

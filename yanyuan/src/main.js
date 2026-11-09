@@ -1,14 +1,14 @@
 // 启动流程：加载地图 → 连接世界 → 创建角色 / 恢复存档 → 进入游戏
-import { loadMap } from './mapdata.js?v=202611090517';
-import { buildMapLayers } from './minimap.js?v=202611090517';
-import { Api, retry, ApiError } from './net.js?v=202611090517';
-import { Game } from './game.js?v=202611090517';
-import * as ui from './ui.js?v=202611090517';
+import { loadMap } from './mapdata.js?v=202611090529';
+import { buildMapLayers } from './minimap.js?v=202611090529';
+import { Api, retry, ApiError } from './net.js?v=202611090529';
+import { Game } from './game.js?v=202611090529';
+import * as ui from './ui.js?v=202611090529';
 import {
   SKINS, HAIRS, TOPS, PANTS, SHOES, HAIR_STYLES, ACCESSORIES, buildCharacterSheet,
-} from './sprites.js?v=202611090517';
-import { normalizeRecovery } from './util.js?v=202611090517';
-import { toast } from './ui.js?v=202611090517';
+} from './sprites.js?v=202611090529';
+import { normalizeRecovery } from './util.js?v=202611090529';
+import { toast } from './ui.js?v=202611090529';
 
 const $ = (id) => document.getElementById(id);
 
@@ -19,6 +19,35 @@ const state = {
   appearance: { skin: 1, hair: 1, hairColor: 0, top: 0, pants: 0, shoes: 0, acc: 0 },
   game: null,
 };
+
+// ---------------- 世界服务连通性 ----------------
+let retryTimer = null;
+
+async function checkWorld({ quiet = false } = {}) {
+  const status = $('startStatus');
+  const box = $('startRetry');
+  const hint = $('retryHint');
+  if (!quiet) status.textContent = '正在连接世界服务…';
+  try {
+    const h = await state.api.health();
+    box.classList.add('hidden');
+    if (retryTimer) { clearInterval(retryTimer); retryTimer = null; }
+    status.textContent = `世界在线 · 校园里有 ${h.online ?? 0} 位同学（共 ${h.total ?? 0} 个角色）`;
+    $('btnOffline').classList.add('hidden');
+    return true;
+  } catch (e) {
+    box.classList.remove('hidden');
+    status.textContent = '世界服务连不上：现在只能离线漫游，联机、存档和聊天都不可用。';
+    hint.textContent = `地址 ${state.api.base}`;
+    if (!retryTimer) {
+      // 每 6 秒自动重试一次，网络恢复后可直接进入
+      retryTimer = setInterval(() => {
+        if (!$('startScreen').classList.contains('hidden')) checkWorld({ quiet: true });
+      }, 6000);
+    }
+    return false;
+  }
+}
 
 // ---------------- 启动 ----------------
 async function boot() {
@@ -45,11 +74,11 @@ async function boot() {
     ui.hideBoot();
 
     if (!online) {
-      $('startStatus').textContent = '世界服务暂时连不上，稍后可以重试。';
+      await checkWorld({ quiet: true });
       $('btnOffline').classList.remove('hidden');
-      toast('世界服务连接失败，可以先离线漫游校园', 'warn', 4200);
+      toast('世界服务连不上，可以先离线漫游校园', 'warn', 4200);
     } else {
-      $('startStatus').textContent = '世界在线 · 校园里有 ' + (await safeOnline()) + ' 位同学';
+      await checkWorld({ quiet: true });
     }
 
     await tryResume();
@@ -242,6 +271,15 @@ function formatInputRecovery(el) {
 
 // ---------------- 事件绑定 ----------------
 function bindScreens() {
+  $('btnRetryWorld').onclick = async () => {
+    const b = $('btnRetryWorld');
+    b.disabled = true;
+    b.textContent = '连接中…';
+    const ok = await checkWorld();
+    b.disabled = false;
+    b.textContent = '重新连接';
+    if (ok) toast('已连上世界服务，可以创建角色了', 'good');
+  };
   $('btnCreate').onclick = () => {
     $('startScreen').classList.add('hidden');
     $('createScreen').classList.remove('hidden');
